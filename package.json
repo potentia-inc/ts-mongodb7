@@ -1,0 +1,50 @@
+{
+  "name": "@potentia/mongodb7",
+  "version": "1.0.0",
+  "description": "utilities for mongodb^7.0.0",
+  "main": "./index.js",
+  "scripts": {
+    "clean": "rimraf dist",
+    "dist": "tsc",
+    "fix": "npm run lint && npm run pretty",
+    "lint": "eslint --fix .",
+    "pretty": "prettier --write .",
+    "test": "NODE_OPTIONS=--experimental-vm-modules npx jest"
+  },
+  "author": "Potentia Computing Inc.",
+  "license": "MIT",
+  "devDependencies": {
+    "@tsconfig/node24": "^24.0.0",
+    "@types/jest": "^30.0.0",
+    "@types/node": "^24.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0",
+    "eslint": "^9.0.0",
+    "eslint-config-prettier": "^10.0.0",
+    "eslint-plugin-jest": "^29.1.0",
+    "globals": "^16.0.0",
+    "jest": "^30.2.0",
+    "prettier": "^3.0.0",
+    "rimraf": "^6.0.0",
+    "typescript": "^5.0.0",
+    "typescript-eslint": "^8.0.0"
+  },
+  "peerDependencies": {
+    "bignumber.js": "^9.0.0",
+    "mongodb": "^7.0.0"
+  },
+  "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./cache": "./cache.js",
+    "./collection": "./collection.js",
+    "./connection": "./connection.js",
+    "./error": "./error.js",
+    "./jest": "./jest.js",
+    "./mongo": "./mongo.js",
+    "./type": "./type.js"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}
