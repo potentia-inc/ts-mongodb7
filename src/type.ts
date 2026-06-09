@@ -111,17 +111,34 @@ export const BUFFER_ENCODINGS: BufferEncoding[] = [
   'binary',
 ]
 
+// `Buffer.from(str, encoding)` never throws: for base64/base64url/hex it
+// silently drops characters outside the alphabet instead of failing, so a bare
+// try/catch can never fall through to the next encoding. Validate the alphabet
+// explicitly so non-matching strings (e.g. containing spaces) fall back to the
+// text encodings rather than being silently corrupted.
+const BASE64_RE = /^[A-Za-z0-9+/]*={0,2}$/
+const BASE64URL_RE = /^[A-Za-z0-9_-]*={0,2}$/
+const HEX_RE = /^(?:[0-9a-fA-F]{2})*$/
+
+function isDecodable(x: string, encoding: BufferEncoding): boolean {
+  switch (encoding) {
+    case 'base64':
+      return BASE64_RE.test(x)
+    case 'base64url':
+      return BASE64URL_RE.test(x)
+    case 'hex':
+      return HEX_RE.test(x)
+    default:
+      return true // text encodings can represent any string
+  }
+}
+
 export function toBuffer(x: unknown): Buffer {
   if (Buffer.isBuffer(x)) return x
   if (x instanceof Binary) return Buffer.from(x.value())
   if (typeof x === 'string') {
     for (const encoding of BUFFER_ENCODINGS) {
-      try {
-        return Buffer.from(x, encoding)
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-      } catch (err) {
-        // ignore and try the next encoding
-      }
+      if (isDecodable(x, encoding)) return Buffer.from(x, encoding)
     }
     assert(false, `failed to decode ${x} for toBuffer()`)
   }
