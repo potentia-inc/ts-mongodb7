@@ -7,8 +7,12 @@ VOLUME=$(PWD):$(WORKDIR)
 
 test:
 	docker compose build --pull
-	docker compose run test || true
-	docker compose down
+	docker compose run --rm node && \
+	docker compose run --rm bun && \
+	docker compose run --rm deno; \
+	status=$$?; \
+	docker compose down; \
+	exit $$status
 
 clean:
 	docker run --rm -u $(USER) -w $(WORKDIR) -v $(VOLUME) $(IMAGE) npm run clean

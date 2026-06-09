@@ -5,14 +5,19 @@ import { isNil } from './util.js'
 export { UUID } from './mongo.js'
 
 export function toUUID(x?: unknown): UUID {
+  // strict coercion: nullish throws (use `new UUID()` to mint a new one, or
+  // toUUIDOrNil() to tolerate null/undefined)
+  if (isNil(x)) {
+    throw new TypeError('cannot convert null or undefined to a UUID')
+  }
   if (x instanceof UUID) return x
   if (x instanceof Binary) {
     assert(x.sub_type === Binary.SUBTYPE_UUID)
     return x.toUUID()
   }
-  if (isNil(x) || Buffer.isBuffer(x) || typeof x === 'string') {
-    return new UUID(x)
-  }
+  if (Buffer.isBuffer(x) || typeof x === 'string') return new UUID(x)
+  // any plain Uint8Array — the 16 raw id bytes
+  if (x instanceof Uint8Array) return new UUID(Buffer.from(x))
   return new UUID(String(x))
 }
 
@@ -21,7 +26,7 @@ export function toUUIDOrNil(x?: unknown): UUID | undefined {
 }
 
 export function generateUUID(id?: UUID): UUID {
-  return id ?? toUUID()
+  return id ?? new UUID()
 }
 
 export class DbError extends Error {

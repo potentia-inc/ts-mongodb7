@@ -82,10 +82,16 @@ UUID.prototype[inspect] = function () {
 const UUID_HEX_RE =
   /^(?:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15})$/i
 
-export function toBinary(x: unknown): Binary {
+export function toBinary(x?: unknown): Binary {
+  if (isNil(x)) {
+    throw new TypeError('cannot convert null or undefined to a Binary')
+  }
   if (x instanceof Binary) return x
   if (x instanceof UUID) return x.toBinary()
   if (Buffer.isBuffer(x)) return new Binary(x, Binary.SUBTYPE_BYTE_ARRAY)
+  // any plain Uint8Array (Web Crypto, fetch().bytes(), other runtimes) — bytes
+  if (x instanceof Uint8Array)
+    return new Binary(Buffer.from(x), Binary.SUBTYPE_BYTE_ARRAY)
   if (typeof x === 'string') {
     if (UUID_HEX_RE.test(x)) return toBinary(toUUID(x))
     return toBinary(toBuffer(x))
@@ -133,9 +139,15 @@ function isDecodable(x: string, encoding: BufferEncoding): boolean {
   }
 }
 
-export function toBuffer(x: unknown): Buffer {
+export function toBuffer(x?: unknown): Buffer {
+  if (isNil(x)) {
+    throw new TypeError('cannot convert null or undefined to a Buffer')
+  }
   if (Buffer.isBuffer(x)) return x
   if (x instanceof Binary) return Buffer.from(x.value())
+  // any plain Uint8Array (Web Crypto, fetch().bytes(), other runtimes) — copy
+  // the raw bytes rather than falling through to String(x)
+  if (x instanceof Uint8Array) return Buffer.from(x)
   if (typeof x === 'string') {
     for (const encoding of BUFFER_ENCODINGS) {
       if (isDecodable(x, encoding)) return Buffer.from(x, encoding)
@@ -149,7 +161,10 @@ export function toBufferOrNil(x?: unknown): Buffer | undefined {
   return isNil(x) ? undefined : toBuffer(x)
 }
 
-export function toDecimal128(x: unknown, round: boolean = true): Decimal128 {
+export function toDecimal128(x?: unknown, round: boolean = true): Decimal128 {
+  if (isNil(x)) {
+    throw new TypeError('cannot convert null or undefined to a Decimal128')
+  }
   if (x instanceof Decimal128) return x
   return round
     ? Decimal128.fromStringWithRounding(String(x))
@@ -161,9 +176,15 @@ export function toDecimal128OrNil(x?: unknown): Decimal128 | undefined {
 }
 
 export function toObjectId(x?: unknown): ObjectId {
+  // strict coercion: nullish throws (use `new ObjectId()` to mint a new one,
+  // or toObjectIdOrNil() to tolerate null/undefined)
+  if (isNil(x)) {
+    throw new TypeError('cannot convert null or undefined to an ObjectId')
+  }
   if (x instanceof ObjectId) return x
-  if (isNil(x)) return new ObjectId()
   if (typeof x === 'string' || Buffer.isBuffer(x)) return new ObjectId(x)
+  // any plain Uint8Array — the 12 raw id bytes
+  if (x instanceof Uint8Array) return new ObjectId(Buffer.from(x))
   return new ObjectId(String(x))
 }
 

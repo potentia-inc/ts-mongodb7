@@ -1,7 +1,6 @@
 /** @type {import('jest').Config} */
 const config = {
-  collectCoverage: true,
-  coverageDirectory: 'coverage',
   roots: ['<rootDir>/dist'],
+  testMatch: ['<rootDir>/dist/jest/**/?(*.)+(spec|test).[tj]s?(x)'],
 }
 export default config

@@ -1,14 +1,14 @@
-import assert from 'node:assert'
+import { strict as assert } from 'node:assert'
+import { after, before, describe, test } from 'node:test'
+import { Collection, generateUUID } from '../src/collection.js'
 import {
   BulkWriteOptions,
   Filter,
   FindOneAndUpdateOptions,
   InsertOneOptions,
   UpdateFilter,
-  Collection,
   UpdateOptions,
-  generateUUID,
-} from '../src/collection.js'
+} from '../src/mongo.js'
 import { Connection } from '../src/connection.js'
 import {
   ConflictError,
@@ -16,10 +16,7 @@ import {
   NotFoundError,
   TransactionError,
 } from '../src/error.js'
-import * as matchers from '../src/jest.js'
-import { UUID, toUUID } from '../src/type.js'
-
-expect.extend(matchers)
+import { UUID } from '../src/type.js'
 
 const { MONGO_URI } = process.env
 assert(MONGO_URI !== undefined)
@@ -110,18 +107,21 @@ const schema = {
   },
 }
 
-beforeAll(async () => {
-  const connection = new Connection(MONGO_URI)
-  await connection.connect()
-  await connection.migrate({
-    ...schema,
-    indexes: {
-      value_index: { keys: { _id: 1, value: 1 }, options: { unique: 1 } },
-    },
-  })
-  await connection.migrate(schema)
-  await connection.disconnect()
-}, 30000)
+before(
+  async () => {
+    const connection = new Connection(MONGO_URI)
+    await connection.connect()
+    await connection.migrate({
+      ...schema,
+      indexes: {
+        value_index: { keys: { _id: 1, value: 1 }, options: { unique: 1 } },
+      },
+    })
+    await connection.migrate(schema)
+    await connection.disconnect()
+  },
+  { timeout: 30000 },
+)
 
 describe('collection', () => {
   const connection = new Connection(MONGO_URI)
@@ -132,8 +132,8 @@ describe('collection', () => {
     cache: { capacity: 1024, ttl: 60_000 },
   })
 
-  beforeAll(() => connection.connect())
-  afterAll(() => connection.disconnect())
+  before(() => connection.connect())
+  after(() => connection.disconnect())
 
   test('transaction()', async () => {
     const value = rand()
@@ -141,56 +141,59 @@ describe('collection', () => {
       await tests.insertOne({ key: rand(), value }, options)
       await tests.insertOne({ key: rand(), value }, options)
     })
-    expect(await tests.findMany({ value })).toHaveLength(2)
+    assert.equal((await tests.findMany({ value })).length, 2)
   })
 
   test('transaction() with ConflictError thrown', async () => {
     const key = rand()
     const value = rand()
-    await expect(
+    await assert.rejects(
       connection.transaction(async (options) => {
         await tests.insertOne({ key, value }, options)
         await tests.insertOne({ key, value }, options)
       }),
-    ).rejects.toThrow(ConflictError)
-    expect(await tests.findMany({ value })).toHaveLength(0)
+      ConflictError,
+    )
+    assert.equal((await tests.findMany({ value })).length, 0)
   })
 
   test('transaction() with TransactionError thrown', async () => {
     const value = rand()
-    await expect(
+    await assert.rejects(
       connection.transaction(async (options) => {
         await tests.insertOne({ key: rand(), value }, options)
         await tests.insertOne({ key: rand(), value }, options)
         throw new TransactionError()
       }),
-    ).rejects.toThrow(TransactionError)
-    expect(await tests.findMany({ value })).toHaveLength(0)
+      TransactionError,
+    )
+    assert.equal((await tests.findMany({ value })).length, 0)
   })
 
   test('insertOne()', async () => {
     const key = rand()
     const value = rand()
     const doc = await tests.insertOne({ key, value })
-    expect(doc._id).toBeUUID()
-    expect(doc.key).toBe(key)
-    expect(doc.value).toBe(value)
-    expect(doc.created_at).toBeInstanceOf(Date)
-    expect(Date.now() - doc.created_at.getTime() < 1000).toBeTruthy()
-    expect(doc.updated_at).toBeUndefined()
-    expect(tests.cache?.has(doc._id)).toBeTruthy()
+    assert.ok(doc._id instanceof UUID)
+    assert.equal(doc.key, key)
+    assert.equal(doc.value, value)
+    assert.ok(doc.created_at instanceof Date)
+    assert.ok(Date.now() - doc.created_at.getTime() < 1000)
+    assert.equal(doc.updated_at, undefined)
+    assert.ok(tests.cache?.has(doc._id))
   })
 
   test('insertOne() with validation error thrown', async () => {
-    await expect(
+    await assert.rejects(
       tests.insertOne({ key: 123 as unknown as string }),
-    ).rejects.toThrow(/Document failed validation/) // MongoServerError
+      /Document failed validation/, // MongoServerError
+    )
   })
 
   test('insertOne() with ConflictError thrown', async () => {
     const key = rand()
     await tests.insertOne({ key })
-    await expect(tests.insertOne({ key })).rejects.toThrow(ConflictError)
+    await assert.rejects(tests.insertOne({ key }), ConflictError)
   })
 
   test('insertMany()', async () => {
@@ -200,14 +203,14 @@ describe('collection', () => {
       { key: rand(), value },
     ])
     for (const doc of docs) {
-      expect(doc._id).toBeUUID()
-      expect(doc.value).toBe(value)
-      expect(doc.created_at).toBeInstanceOf(Date)
-      expect(Date.now() - doc.created_at.getTime() < 1000).toBeTruthy()
-      expect(doc.updated_at).toBeUndefined()
-      expect(tests.cache?.has(doc._id)).toBeTruthy()
+      assert.ok(doc._id instanceof UUID)
+      assert.equal(doc.value, value)
+      assert.ok(doc.created_at instanceof Date)
+      assert.ok(Date.now() - doc.created_at.getTime() < 1000)
+      assert.equal(doc.updated_at, undefined)
+      assert.ok(tests.cache?.has(doc._id))
     }
-    expect(docs[0].created_at.getTime()).toBe(docs[1].created_at.getTime())
+    assert.equal(docs[0].created_at.getTime(), docs[1].created_at.getTime())
   })
 
   test('findOne()', async () => {
@@ -215,25 +218,23 @@ describe('collection', () => {
     const value = rand()
     const { _id } = await tests.insertOne({ key, value })
     const found = await tests.findOne({ _id })
-    expect(found._id).toEqualUUID(_id)
-    expect(found.key).toBe(key)
-    expect(found.value).toBe(value)
+    assert.ok(found._id.equals(_id))
+    assert.equal(found.key, key)
+    assert.equal(found.value, value)
 
-    expect(tests.cache?.has(found._id)).toBeTruthy()
+    assert.ok(tests.cache?.has(found._id))
 
     const docs = await tests.find({ _id }).toArray()
-    expect(docs.length).toBe(1)
-    expect(docs[0]._id).toEqualUUID(_id)
+    assert.equal(docs.length, 1)
+    assert.ok(docs[0]._id.equals(_id))
 
     const aggregations = await tests.aggregate([{ $match: { _id } }]).toArray()
-    expect(aggregations.length).toBe(1)
-    expect(aggregations[0]._id).toEqualUUID(_id)
+    assert.equal(aggregations.length, 1)
+    assert.ok((aggregations[0]._id as UUID).equals(_id))
   })
 
   test('findOne() with NotFound thrown', async () => {
-    await expect(tests.findOne({ _id: toUUID() })).rejects.toThrow(
-      NotFoundError,
-    )
+    await assert.rejects(tests.findOne({ _id: new UUID() }), NotFoundError)
   })
 
   test('queryOne()', async () => {
@@ -245,10 +246,10 @@ describe('collection', () => {
 
     function check(doc?: Test) {
       assert(doc !== undefined)
-      expect(doc._id).toEqualUUID(_id)
-      expect(doc.key).toBe(key)
-      expect(doc.value).toBe(value)
-      expect(tests.cache?.has(doc._id)).toBeTruthy()
+      assert.ok(doc._id.equals(_id))
+      assert.equal(doc.key, key)
+      assert.equal(doc.value, value)
+      assert.ok(tests.cache?.has(doc._id))
     }
   })
 
@@ -259,16 +260,16 @@ describe('collection', () => {
       { key: rand(), value },
     ])
     const queried = await tests.findMany({ value })
-    expect(docs.length).toBe(queried.length)
+    assert.equal(docs.length, queried.length)
     for (let i = 0; i < docs.length; ++i) {
       const d = docs[i]
       const q = queried[i]
       assert(d !== undefined && q !== undefined)
-      expect(q._id).toEqualUUID(d._id)
-      expect(q.value).toBe(value)
-      expect(q.created_at.getTime()).toBe(d.created_at.getTime())
-      expect(q.updated_at).toBeUndefined()
-      expect(tests.cache?.has(d._id)).toBeTruthy()
+      assert.ok(q._id.equals(d._id))
+      assert.equal(q.value, value)
+      assert.equal(q.created_at.getTime(), d.created_at.getTime())
+      assert.equal(q.updated_at, undefined)
+      assert.ok(tests.cache?.has(d._id))
     }
   })
 
@@ -277,12 +278,12 @@ describe('collection', () => {
 
     const key = rand()
     const updated = await tests.updateOne({ _id }, { $set: { key } })
-    expect(updated._id).toEqualUUID(_id)
-    expect(updated.key).toBe(key)
-    expect(updated.updated_at).toBeInstanceOf(Date)
+    assert.ok(updated._id.equals(_id))
+    assert.equal(updated.key, key)
+    assert.ok(updated.updated_at instanceof Date)
     assert(updated.updated_at !== undefined)
-    expect(Date.now() - updated.updated_at.getTime() < 1000).toBeTruthy()
-    expect(tests.cache?.get(updated._id)).toBe(updated)
+    assert.ok(Date.now() - updated.updated_at.getTime() < 1000)
+    assert.equal(tests.cache?.get(updated._id), updated)
   })
 
   test('updateOne() with upsert, case 1', async () => {
@@ -291,30 +292,30 @@ describe('collection', () => {
       {},
       { upsert: true },
     )
-    expect(inserted._id).toBeUUID()
-    expect(tests.cache?.get(inserted._id)).toBe(inserted)
+    assert.ok(inserted._id instanceof UUID)
+    assert.equal(tests.cache?.get(inserted._id), inserted)
   })
 
   test('updateOne() with upsert, case 2', async () => {
-    const id1 = toUUID()
+    const id1 = new UUID()
     const inserted = await tests.updateOne(
       { _id: id1, key: rand() },
       {},
       { upsert: true },
     )
-    expect(inserted._id).toEqualUUID(id1)
-    expect(tests.cache?.get(inserted._id)).toBe(inserted)
+    assert.ok(inserted._id.equals(id1))
+    assert.equal(tests.cache?.get(inserted._id), inserted)
   })
 
   test('updateOne() with upsert, case 3', async () => {
-    const id2 = toUUID()
+    const id2 = new UUID()
     const inserted = await tests.updateOne(
       { key: rand() },
       { $setOnInsert: { _id: id2 } },
       { upsert: true },
     )
-    expect(inserted._id).toEqualUUID(id2)
-    expect(tests.cache?.get(inserted._id)).toBe(inserted)
+    assert.ok(inserted._id.equals(id2))
+    assert.equal(tests.cache?.get(inserted._id), inserted)
   })
 
   test('updateMany()', async () => {
@@ -329,18 +330,18 @@ describe('collection', () => {
       { value },
       { $set: { value: value2 } },
     )
-    expect(updated).toBe(docs.length)
+    assert.equal(updated, docs.length)
     for (const doc of docs) {
       // the old values are cached without updating
-      expect(tests.cache?.get(doc._id)?.value).toBe(value)
+      assert.equal(tests.cache?.get(doc._id)?.value, value)
 
       const updated = await tests.findOne({ _id: doc._id })
-      expect(updated._id).toEqualUUID(doc._id)
-      expect(updated.value).toBe(value2)
-      expect(updated.created_at.getTime()).toBe(doc.created_at.getTime())
-      expect(updated.updated_at).toBeInstanceOf(Date)
+      assert.ok(updated._id.equals(doc._id))
+      assert.equal(updated.value, value2)
+      assert.equal(updated.created_at.getTime(), doc.created_at.getTime())
+      assert.ok(updated.updated_at instanceof Date)
       assert(updated.updated_at !== undefined)
-      expect(Date.now() - updated.updated_at.getTime() < 1000).toBeTruthy()
+      assert.ok(Date.now() - updated.updated_at.getTime() < 1000)
     }
   })
 
@@ -348,10 +349,10 @@ describe('collection', () => {
     const { _id } = await tests.insertOne({ key: rand() })
     await tests.deleteOne({ _id })
     const deleted = await tests.queryOne({ _id })
-    expect(deleted).toBeUndefined()
+    assert.equal(deleted, undefined)
 
     // the old values are cached without invalidating
-    expect(tests.cache?.has(_id)).toBeTruthy()
+    assert.ok(tests.cache?.has(_id))
   })
 
   test('deleteMany()', async () => {
@@ -360,14 +361,14 @@ describe('collection', () => {
       { key: rand(), value },
       { key: rand(), value },
     ])
-    expect(docs).toHaveLength(2)
+    assert.equal(docs.length, 2)
     await tests.deleteMany({ value })
     const deleted = await tests.findMany({ value })
-    expect(deleted).toHaveLength(0)
+    assert.equal(deleted.length, 0)
 
     // the old values are cached without invalidating
     for (const { _id } of docs) {
-      expect(tests.cache?.has(_id)).toBeTruthy()
+      assert.ok(tests.cache?.has(_id))
     }
   })
 })
@@ -385,7 +386,7 @@ describe('collection with cache', () => {
     await connection.connect()
     const { _id } = await tests.insertOne({ key: rand() })
     await connection.disconnect()
-    await expect(tests.findOne({ _id })).rejects.toThrow(DisconnectedError)
+    await assert.rejects(tests.findOne({ _id }), DisconnectedError)
   })
 
   test('findOneById()', async () => {
@@ -393,7 +394,7 @@ describe('collection with cache', () => {
     const { _id } = await tests.insertOne({ key: rand() })
     await connection.disconnect()
     const cached = await tests.findOneById(_id) // find the doc from cache
-    expect(cached._id).toEqualUUID(_id)
+    assert.ok(cached._id.equals(_id))
   })
 
   test('findOneById() without cache', async () => {
@@ -401,14 +402,12 @@ describe('collection with cache', () => {
     const { _id } = await tests.insertOne({ key: rand() })
     await connection.disconnect()
     const cached = await tests.findOneById(_id) // find the doc from cache
-    expect(cached._id).toEqualUUID(_id)
+    assert.ok(cached._id.equals(_id))
     // without cache so got DisconnectedError
-    await expect(tests.findOneById(_id, false)).rejects.toThrow(
-      DisconnectedError,
-    )
+    await assert.rejects(tests.findOneById(_id, false), DisconnectedError)
   })
 })
 
 function rand(): string {
-  return String(toUUID())
+  return String(new UUID())
 }

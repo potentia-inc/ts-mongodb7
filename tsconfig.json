@@ -1,6 +1,6 @@
 {
   "extends": "@tsconfig/node24/tsconfig.json",
-  "include": ["src", "test"],
+  "include": ["src", "test", "jest"],
   "exclude": ["node_modules"],
   "compilerOptions": {
     "rootDir": ".",
