@@ -28,7 +28,7 @@ import { isNil } from './util.js'
 
 export { generateUUID, generateUUID as generateUuid } from './core.js'
 
-// XXX deprecated, use @mongodb6/type instead
+// XXX deprecated, use @potentia/mongodb7/mongo instead
 export {
   AggregateOptions,
   AggregationCursor,

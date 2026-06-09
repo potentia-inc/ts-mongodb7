@@ -1,4 +1,4 @@
-.PHONY: test clean lint prettier dist
+.PHONY: test clean lint pretty fix dist
 
 IMAGE=node:24-slim
 USER=$(shell id -u):$(shell id -g)
@@ -16,8 +16,8 @@ clean:
 lint:
 	docker run --rm -u $(USER) -w $(WORKDIR) -v $(VOLUME) $(IMAGE) npm run lint
 
-prettier:
-	docker run --rm -u $(USER) -w $(WORKDIR) -v $(VOLUME) $(IMAGE) npm run prettier
+pretty:
+	docker run --rm -u $(USER) -w $(WORKDIR) -v $(VOLUME) $(IMAGE) npm run pretty
 
 fix:
 	docker run --rm -u $(USER) -w $(WORKDIR) -v $(VOLUME) $(IMAGE) npm run fix

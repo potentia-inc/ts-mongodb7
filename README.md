@@ -5,7 +5,7 @@ Utilities for [mongodb](https://github.com/mongodb/node-mongodb-native) `^7.0.0`
  - [types](#types): utilities for `Binary`, `Decimal128`, `UUID` and `ObjectId`
  - [jest matchers](#jest-matchers): [jest](https://jestjs.io) matchers for types
  - [connection](#connection): `MongoClient` wrapper for connection management
- - [collection](#collection): mongodb `Collection` wrapper for CRUD operaitons
+ - [collection](#collection): mongodb `Collection` wrapper for CRUD operations
  - [error](#error): errors
 
 Note: [bignumber.js](https://github.com/MikeMcl/bignumber.js) is required for
@@ -37,14 +37,13 @@ import {
 
 // note: all other mongodb symbols are re-exported from '@potentia/mongodb7/mongo'
 
-toBinary('foobar') // create a new Binary from the given string
+toBinary('foobar') // create a new Binary from the given base64-encoded string
 toBinary(Buffer.from('foobar', 'base64')) // create a new Binary from the given Buffer
-toBianryOrNil() // undefined
+toBinaryOrNil() // undefined
 
 toDecimal128('123.45') // 123.45
-toDecimal128('123.45') // 123.45
-toDecimal128(Infinity)) // infinity
-toDecimal128(-Infinity)) // -infinity
+toDecimal128(Infinity) // infinity
+toDecimal128(-Infinity) // -infinity
 toDecimal128(NaN) // NaN
 toDecimal128('foobar') // Error thrown
 toDecimal128() // Error thrown
@@ -69,7 +68,7 @@ toObjectIdOrNil() // undefined
 `ObjectId`
 
 ```typescript
-import * as matchers from '@potentia/bignumber/jest'
+import * as matchers from '@potentia/mongodb7/jest'
 expect.extend(matchers)
 
 expect(toBinary('foobar')).toBeBinary()
@@ -120,7 +119,7 @@ await connection.connect() // connect to the mongodb
 await connection.disconnect() // disconnect to the mongodb
 await connection.transaction(async (options) => {
   // ClientSession object is included in options
-  // to db operaitons here with options
+  // to db operations here with options
 })
 await connection.migrate({
   name: 'collections',
@@ -142,7 +141,7 @@ await connection.migrate({
   },
 })
 
-// you can get the monogdb MongoClient object to do low-level operations
+// you can get the mongodb MongoClient object to do low-level operations
 connection.client // get the mongodb MongoClient object
 connection.client.startSession() // start a new ClientSession
 
@@ -153,7 +152,7 @@ connection.db.collections() // get all collections
 
 ### Collection
 
-Mongodb `Collection` wrapper for CRUD operaitons
+Mongodb `Collection` wrapper for CRUD operations
 
 ```typescript
 import { Connection, UUID, toUUID } from '@potentia/mongodb7'
@@ -208,7 +207,7 @@ Note about the cache:
   - findOneById() will try to load the docuement from the cache if possible.
     You can still disable the cache by providing the second argument as false:
 
-      findOneById(id, false, options) // load the document from db forcely
+      findOneById(id, false, options) // load the document from db forcibly
 
   - queryOne(), findOne(), and findMany() will NOT load the document from the cache,
     but the loaded documents will be cached automatically if the cache is enabled.
