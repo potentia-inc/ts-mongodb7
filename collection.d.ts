@@ -3,7 +3,6 @@ import { Connection } from './connection.js';
 import { AggregateOptions, AggregationCursor, BulkWriteOptions, ChangeStream, ChangeStreamOptions, Collection as MongoCollection, DeleteOptions, Document, Filter, FindCursor, FindOneAndUpdateOptions, FindOptions, InsertOneOptions, OptionalId, Sort, UpdateFilter, UpdateOptions, WithId } from './mongo.js';
 import { ObjectId } from './type.js';
 export { generateUUID, generateUUID as generateUuid } from './core.js';
-export { AggregateOptions, AggregationCursor, BulkWriteOptions, ChangeStream, ChangeStreamOptions, Collection as MongoCollection, CommandOperationOptions, DeleteOptions, Document, Filter, FindCursor, FindOneAndUpdateOptions, FindOptions, InsertOneOptions, OptionalId, OptionalUnlessRequiredId, Sort, UpdateFilter, UpdateOptions, WithId, } from 'mongodb';
 export type CollectionOptions<Doc extends Document> = {
     connection: Connection;
     name: string;

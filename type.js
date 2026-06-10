@@ -4,50 +4,23 @@ import { Binary, Decimal128, ObjectId, UUID } from './mongo.js';
 import { isNil } from './util.js';
 export { UUID, UUID as Uuid, toUUID, toUUID as toUuid, toUUIDOrNil, toUUIDOrNil as toUuidOrNil, } from './core.js';
 export { Binary, Decimal128, ObjectId } from './mongo.js';
-const inspect = Symbol.for('nodejs.util.inspect.custom'); // for console.log etc
-Binary.prototype[Symbol.toPrimitive] = function (hint) {
-    assert(hint !== 'number');
-    return this.sub_type === Binary.SUBTYPE_UUID
-        ? this.toUUID().toString()
-        : this.toJSON(); // to base64 encoding
-};
-Binary.prototype[inspect] = function () {
-    return this.sub_type === Binary.SUBTYPE_UUID
-        ? `UUID(${this})`
-        : `Binary(${this})`;
-};
-Decimal128.prototype[Symbol.toPrimitive] = function (hint) {
-    return hint === 'number' ? Number(this.toString()) : this.toString();
-};
-Decimal128.prototype[inspect] = function () {
-    return `Decimal128(${this})`;
-};
-// FIXME hack the Decimal128.prototype.toJSON for JSON.string() to output string
-Decimal128.prototype.toJSON = function () {
-    return this.toString();
-};
-ObjectId.prototype[Symbol.toPrimitive] = function (hint) {
-    assert(hint !== 'number');
-    return this.toString();
-};
-ObjectId.prototype[inspect] = function () {
-    return `ObjectId(${this})`;
-};
-UUID.prototype[Symbol.toPrimitive] = function (hint) {
-    assert(hint !== 'number');
-    return this.toString();
-};
-UUID.prototype[inspect] = function () {
-    return `UUID(${this})`;
-};
+// The `Binary`/`Decimal128`/`ObjectId`/`UUID` prototype patches (Symbol.toPrimitive,
+// util.inspect.custom, Decimal128 toJSON) are opt-in side effects — import them
+// from '@potentia/mongodb7/patch' (or the granular ./patch/{primitive,inspect,json}).
 const UUID_HEX_RE = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15})$/i;
 export function toBinary(x) {
+    if (isNil(x)) {
+        throw new TypeError('cannot convert null or undefined to a Binary');
+    }
     if (x instanceof Binary)
         return x;
     if (x instanceof UUID)
         return x.toBinary();
     if (Buffer.isBuffer(x))
         return new Binary(x, Binary.SUBTYPE_BYTE_ARRAY);
+    // any plain Uint8Array (Web Crypto, fetch().bytes(), other runtimes) — bytes
+    if (x instanceof Uint8Array)
+        return new Binary(Buffer.from(x), Binary.SUBTYPE_BYTE_ARRAY);
     if (typeof x === 'string') {
         if (UUID_HEX_RE.test(x))
             return toBinary(toUUID(x));
@@ -71,20 +44,42 @@ export const BUFFER_ENCODINGS = [
     'latin1',
     'binary',
 ];
+// `Buffer.from(str, encoding)` never throws: for base64/base64url/hex it
+// silently drops characters outside the alphabet instead of failing, so a bare
+// try/catch can never fall through to the next encoding. Validate the alphabet
+// explicitly so non-matching strings (e.g. containing spaces) fall back to the
+// text encodings rather than being silently corrupted.
+const BASE64_RE = /^[A-Za-z0-9+/]*={0,2}$/;
+const BASE64URL_RE = /^[A-Za-z0-9_-]*={0,2}$/;
+const HEX_RE = /^(?:[0-9a-fA-F]{2})*$/;
+function isDecodable(x, encoding) {
+    switch (encoding) {
+        case 'base64':
+            return BASE64_RE.test(x);
+        case 'base64url':
+            return BASE64URL_RE.test(x);
+        case 'hex':
+            return HEX_RE.test(x);
+        default:
+            return true; // text encodings can represent any string
+    }
+}
 export function toBuffer(x) {
+    if (isNil(x)) {
+        throw new TypeError('cannot convert null or undefined to a Buffer');
+    }
     if (Buffer.isBuffer(x))
         return x;
     if (x instanceof Binary)
         return Buffer.from(x.value());
+    // any plain Uint8Array (Web Crypto, fetch().bytes(), other runtimes) — copy
+    // the raw bytes rather than falling through to String(x)
+    if (x instanceof Uint8Array)
+        return Buffer.from(x);
     if (typeof x === 'string') {
         for (const encoding of BUFFER_ENCODINGS) {
-            try {
+            if (isDecodable(x, encoding))
                 return Buffer.from(x, encoding);
-                // eslint-disable-next-line @typescript-eslint/no-unused-vars
-            }
-            catch (err) {
-                // ignore and try the next encoding
-            }
         }
         assert(false, `failed to decode ${x} for toBuffer()`);
     }
@@ -94,6 +89,9 @@ export function toBufferOrNil(x) {
     return isNil(x) ? undefined : toBuffer(x);
 }
 export function toDecimal128(x, round = true) {
+    if (isNil(x)) {
+        throw new TypeError('cannot convert null or undefined to a Decimal128');
+    }
     if (x instanceof Decimal128)
         return x;
     return round
@@ -104,15 +102,20 @@ export function toDecimal128OrNil(x) {
     return isNil(x) ? undefined : toDecimal128(x);
 }
 export function toObjectId(x) {
+    // strict coercion: nullish throws (use `new ObjectId()` to mint a new one,
+    // or toObjectIdOrNil() to tolerate null/undefined)
+    if (isNil(x)) {
+        throw new TypeError('cannot convert null or undefined to an ObjectId');
+    }
     if (x instanceof ObjectId)
         return x;
-    if (isNil(x))
-        return new ObjectId();
     if (typeof x === 'string' || Buffer.isBuffer(x))
         return new ObjectId(x);
+    // any plain Uint8Array — the 12 raw id bytes
+    if (x instanceof Uint8Array)
+        return new ObjectId(Buffer.from(x));
     return new ObjectId(String(x));
 }
 export function toObjectIdOrNil(x) {
     return isNil(x) ? undefined : toObjectId(x);
 }
-//# sourceMappingURL=type.js.map

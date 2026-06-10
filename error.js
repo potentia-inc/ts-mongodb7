@@ -1,5 +1,5 @@
 import { DbError } from './core.js';
-export { DbError, DbError as DBError } from './core.js';
+export { DbError } from './core.js';
 export class DisconnectedError extends DbError {
     constructor(message) {
         super(message ?? 'Disconnected');
@@ -25,4 +25,3 @@ export class UnacknowledgedError extends DbError {
         super(message ?? 'Unacknowledged');
     }
 }
-//# sourceMappingURL=error.js.map

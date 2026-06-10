@@ -2,11 +2,9 @@ import assert from 'node:assert';
 import { Cache } from './cache.js';
 import { isDuplicationError } from './connection.js';
 import { ConflictError, NotFoundError, UnacknowledgedError } from './error.js';
-import { toObjectId } from './type.js';
+import { ObjectId } from './type.js';
 import { isNil } from './util.js';
 export { generateUUID, generateUUID as generateUuid } from './core.js';
-// XXX deprecated, use @mongodb6/type instead
-export { AggregationCursor, ChangeStream, Collection as MongoCollection, FindCursor, } from 'mongodb';
 export class Collection {
     generate;
     name;
@@ -149,6 +147,5 @@ export function generate(id) {
     return id;
 }
 export function generateObjectId(id) {
-    return id ?? toObjectId();
+    return id ?? new ObjectId();
 }
-//# sourceMappingURL=collection.js.map

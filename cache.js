@@ -43,11 +43,18 @@ export class Cache {
         return undefined;
     }
     delete(key) {
-        return this.map.delete(key);
+        if (!this.map.delete(key))
+            return false;
+        // keep count/list in sync so eviction accounting stays correct
+        this.count.delete(key);
+        this.list = this.list.filter(([, k]) => k !== key);
+        return true;
     }
     clear() {
         this.map.clear();
+        this.count.clear();
         this.list.splice(0, this.list.length);
+        this.last = undefined;
     }
     isFull() {
         return this.size >= this.capacity;
@@ -90,4 +97,3 @@ export class Cache {
         this.list.splice(0, size);
     }
 }
-//# sourceMappingURL=cache.js.map

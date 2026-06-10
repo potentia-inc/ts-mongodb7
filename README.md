@@ -1,19 +1,57 @@
 # @potentia/mongodb7
 
-Utilities for [mongodb](https://github.com/mongodb/node-mongodb-native) `^7.0.0`
+Cross-runtime utilities for
+[mongodb](https://github.com/mongodb/node-mongodb-native) `^7.0.0`, running on
+Node.js, [Bun](https://bun.sh) and [Deno](https://deno.com).
 
- - [types](#types): utilities for `Binary`, `Decimal128`, `UUID` and `ObjectId`
- - [jest matchers](#jest-matchers): [jest](https://jestjs.io) matchers for types
- - [connection](#connection): `MongoClient` wrapper for connection management
- - [collection](#collection): mongodb `Collection` wrapper for CRUD operaitons
- - [error](#error): errors
+- [types](#types): coercions for `Binary`, `Buffer`, `Decimal128`, `UUID` and
+  `ObjectId`
+- [patches](#patches): opt-in prototype patches for coercion, inspection and JSON
+- [matchers](#matchers): [jest](https://jestjs.io),
+  [bun:test](https://bun.sh/docs/cli/test) and [vitest](https://vitest.dev)
+  matchers for the types
+- [connection](#connection): `MongoClient` wrapper for connection management
+- [collection](#collection): mongodb `Collection` wrapper for CRUD operations
+- [cache](#cache): a small in-memory TTL + LRU cache (used by `Collection`)
+- [error](#error): error classes for db operations
 
-Note: [bignumber.js](https://github.com/MikeMcl/bignumber.js) is required for
-jest matcher
+## Runtime support
 
-### Types
+Works on **Node.js (>= 22)**, **Bun** and **Deno (>= 2)**. The published package
+ships compiled JavaScript plus type declarations, and is pure ESM.
 
-Utilities for `Binary`, `Decimal128`, `UUID` and `ObjectId`
+`mongodb` and [bignumber.js](https://github.com/MikeMcl/bignumber.js) are peer
+dependencies — install them in your own project. `bignumber.js` is only needed
+for the matchers. The `./matcher/jest`, `./matcher/bun` and `./matcher/vitest`
+entry points additionally require the corresponding test framework, but the rest
+of the package does not depend on any of them.
+
+```sh
+npm install @potentia/mongodb7 mongodb bignumber.js
+# or: bun add @potentia/mongodb7 mongodb bignumber.js
+# or: deno add npm:@potentia/mongodb7 npm:mongodb npm:bignumber.js
+```
+
+> **Breaking changes in 2.0.0:**
+>
+> - The matcher entry point moved from `@potentia/mongodb7/jest` to
+>   `@potentia/mongodb7/matcher/jest`, and bun:test and vitest matchers were
+>   added at `@potentia/mongodb7/matcher/{bun,vitest}`. Each matcher now also
+>   accepts the expected value directly — `toBeUUID(id)` is identical to
+>   `toEqualUUID(id)`.
+> - The `toX()` coercions are now **strict**: they throw on `null`/`undefined`.
+>   In particular `toUUID()` / `toObjectId()` no longer mint a new id — use
+>   `new UUID()` / `new ObjectId()` for that, or `toXOrNil()` to tolerate nullish
+>   input.
+
+## Types
+
+Coercions for `Binary`, `Buffer`, `Decimal128`, `UUID` and `ObjectId`. Every
+`toX()` is **strict** — it throws on `null`/`undefined` or any un-coercible
+value (it never silently generates or fabricates a value). The `toXOrNil()`
+variant returns `undefined` for `null`/`undefined`, but still throws on an
+invalid value. To mint a new id, construct one directly with `new UUID()` /
+`new ObjectId()`.
 
 ```typescript
 import {
@@ -24,6 +62,8 @@ import {
   Uuid, // alias of UUID
   toBinary,
   toBinaryOrNil,
+  toBuffer,
+  toBufferOrNil,
   toDecimal128,
   toDecimal128OrNil,
   toObjectId,
@@ -37,74 +77,187 @@ import {
 
 // note: all other mongodb symbols are re-exported from '@potentia/mongodb7/mongo'
 
-toBinary('foobar') // create a new Binary from the given string
+toBinary('foobar') // create a new Binary from the given base64-encoded string
 toBinary(Buffer.from('foobar', 'base64')) // create a new Binary from the given Buffer
-toBianryOrNil() // undefined
+toBinary(new Uint8Array([1, 2, 3])) // create a new Binary from raw bytes
+toBinaryOrNil() // undefined
+
+toBuffer('Zm9vYmFy') // decode a base64 string to a Buffer
+toBuffer(new Uint8Array([1, 2, 3])) // copy the raw bytes into a Buffer
+toBuffer(toBinary('foobar')) // the bytes of a Binary
+toBufferOrNil() // undefined
+// note: toBuffer() tries each encoding in BUFFER_ENCODINGS in order
+//       (base64, base64url, hex, then the text encodings)
 
 toDecimal128('123.45') // 123.45
-toDecimal128('123.45') // 123.45
-toDecimal128(Infinity)) // infinity
-toDecimal128(-Infinity)) // -infinity
+toDecimal128(Infinity) // infinity
+toDecimal128(-Infinity) // -infinity
 toDecimal128(NaN) // NaN
 toDecimal128('foobar') // Error thrown
 toDecimal128() // Error thrown
 toDecimal128OrNil() // undefined
 
 const uuid = 'f4653fea-ef09-4e84-b3c8-9bc66d99b5bb'
-toUUID() // generate a new UUID
 toUUID(uuid) // create a new UUID from the given string representation
 toUUID('foobar') // Error thrown
+toUUID() // Error thrown (use `new UUID()` to mint a new UUID)
 toUUIDOrNil() // undefined
+toUuid(uuid) // toUuid/toUuidOrNil are aliases of toUUID/toUUIDOrNil
 
 const objectid = '658cd87dcad575d87adc87bc'
-toObjectId() // generate a new ObjectId
 toObjectId(objectid) // create a new ObjectId from the given string representation
 toObjectId('foobar') // Error thrown
+toObjectId() // Error thrown (use `new ObjectId()` to mint a new ObjectId)
 toObjectIdOrNil() // undefined
 ```
 
-## Jest matchers
-
-[jest](https://jestjs.io) matchers for `Binary`, `Decimal128`, `UUID` and
-`ObjectId`
+`new UUID()` mints a random **version 4** UUID. If you need a specific UUID
+version (v1, v5, v7, …), generate it with a dedicated package such as
+[`uuid`](https://www.npmjs.com/package/uuid) and pass the string to `toUUID()`:
 
 ```typescript
-import * as matchers from '@potentia/bignumber/jest'
+import { v7 as uuidv7 } from 'uuid'
+
+toUUID(uuidv7()) // a time-ordered (version 7) UUID
+```
+
+`toBinary`, `toBuffer`, `toUUID` and `toObjectId` accept a plain `Uint8Array`
+(e.g. from Web Crypto or `fetch().bytes()`) as raw bytes, not just a Node
+`Buffer` — the results are still `Buffer`/`Binary` (a `Buffer` is itself a
+`Uint8Array`), and `toBuffer` remains the portable base64/hex/utf8 codec across
+Node, Bun and Deno.
+
+## Patches
+
+`Binary`, `Decimal128`, `ObjectId` and `UUID` are owned by `mongodb`/`bson`. This
+package can patch their prototypes for nicer ergonomics, but since that mutates
+classes shared across your whole process, the patches are **opt-in** and never
+applied by importing the package itself.
+
+Each patch is an independent global mutation, so they are exposed at the finest
+grain — one type × one concern — and the broader entry points just compose them.
+Import exactly what you need, once, at startup:
+
+```typescript
+import '@potentia/mongodb7/patch' // everything
+import '@potentia/mongodb7/patch/decimal128' // every Decimal128 patch
+import '@potentia/mongodb7/patch/decimal128/json' // just the one you want
+```
+
+The tree:
+
+| entry point                          | patches                                            |
+| ------------------------------------ | -------------------------------------------------- |
+| `@potentia/mongodb7/patch`           | everything below                                   |
+| `…/patch/binary`                     | `binary/primitive` + `binary/inspect`              |
+| `…/patch/binary/primitive`           | `Binary` Symbol.toPrimitive (base64 / UUID string) |
+| `…/patch/binary/inspect`             | `Binary` util.inspect → `Binary(..)` / `UUID(..)`  |
+| `…/patch/decimal128`                 | `decimal128/{primitive,inspect,json}`              |
+| `…/patch/decimal128/primitive`       | `Decimal128` Symbol.toPrimitive (string / number)  |
+| `…/patch/decimal128/inspect`         | `Decimal128` util.inspect → `Decimal128(..)`       |
+| `…/patch/decimal128/json`            | `Decimal128` toJSON → a bare string                |
+| `…/patch/objectid`                   | `objectid/{primitive,inspect}`                     |
+| `…/patch/objectid/primitive`         | `ObjectId` Symbol.toPrimitive (hex string)         |
+| `…/patch/objectid/inspect`           | `ObjectId` util.inspect → `ObjectId(..)`           |
+| `…/patch/uuid`                       | `uuid/{primitive,inspect}`                         |
+| `…/patch/uuid/primitive`             | `UUID` Symbol.toPrimitive (string)                 |
+| `…/patch/uuid/inspect`               | `UUID` util.inspect → `UUID(..)`                   |
+
+What the concerns do:
+
+```typescript
+// primitive — Symbol.toPrimitive for template literals / String() / Number()
+import '@potentia/mongodb7/patch/uuid/primitive'
+`${toUUID(uuid)}` // 'f4653fea-...'  (otherwise the default toString is used)
+import '@potentia/mongodb7/patch/decimal128/primitive'
+Number(toDecimal128('1.5')) // 1.5
+
+// inspect — console.log / node:test diffs render as Type(value)
+import '@potentia/mongodb7/patch/objectid/inspect'
+console.log(toObjectId(objectid)) // ObjectId(658cd87dcad575d87adc87bc)
+
+// json — Decimal128 serializes as a bare string instead of Extended JSON
+import '@potentia/mongodb7/patch/decimal128/json'
+JSON.stringify({ v: toDecimal128('1.5') }) // '{"v":"1.5"}'
+// without it: '{"v":{"$numberDecimal":"1.5"}}'
+```
+
+> Note: `…/decimal128/json` changes `Decimal128` serialization process-wide and
+> breaks Extended JSON round-tripping — opt into it only when your application
+> owns the output format. It is the only patch with `json` (the other types
+> serialize fine by default).
+
+## Matchers
+
+Custom matchers for `Binary`, `Buffer`, `Decimal128`, `ObjectId` and `UUID`,
+available for jest, bun:test and vitest. The implementation is shared; only the
+import path differs.
+
+Each matcher checks the **type** when called with no argument, or the type
+**and value** when given one (the expected value is coerced automatically, e.g.
+with `toBinary`/`toUUID`). `toBe*` and `toEqual*` are the same matcher under two
+names — use `toBe*` throughout, or follow the jest convention (`toBe*` for the
+type, `toEqual*` for equality).
+
+`ObjectId` and `UUID` additionally have `*String` matchers that check the string
+form, `Decimal128` has `toBeDecimal128NaN()` (since `NaN` never equals `NaN`),
+and every `UUID` matcher has a `Uuid` alias (`toBeUuid`, `toEqualUuid`,
+`toBeUuidString`, `toEqualUuidString`).
+
+```typescript
+// jest:   import * as matchers from '@potentia/mongodb7/matcher/jest'
+// bun:    import * as matchers from '@potentia/mongodb7/matcher/bun'
+// vitest: import * as matchers from '@potentia/mongodb7/matcher/vitest'
+import * as matchers from '@potentia/mongodb7/matcher/jest'
 expect.extend(matchers)
 
-expect(toBinary('foobar')).toBeBinary()
+// Binary
+const bytes = new Uint8Array([1, 2, 3])
+expect(toBinary('foobar')).toBeBinary() // type
 expect('foobar').not.toBeBinary()
-expect(toBinary('foobar')).toEqualBinary('foobar')
+expect(toBinary('foobar')).toBeBinary('foobar') // type and value, via toBe
+expect(toBinary('foobar')).toEqualBinary('foobar') // same, jest-style
 expect(toBinary('foobar')).toEqualBinary(Buffer.from('foobar', 'base64'))
+expect(toBinary(bytes)).toEqualBinary(bytes) // raw Uint8Array bytes
 
-expect(toDecimal128('123.45')).toBeDecimal128()
-expect(toDecimal128('123.45')).toEqualDecimal128(123.45)
+// Buffer
+expect(toBuffer('foobar')).toBeBuffer() // type
+expect('foobar').not.toBeBuffer()
+expect(toBuffer('foobar')).toBeBuffer('foobar') // type and value
+expect(toBuffer('foobar')).toEqualBuffer('foobar')
+
+// Decimal128
+expect(toDecimal128('123.45')).toBeDecimal128() // type
+expect(toDecimal128('123.45')).toBeDecimal128(123.45) // type and value
 expect(toDecimal128('123.45')).toEqualDecimal128('123.45')
 expect(toDecimal128(Infinity)).toEqualDecimal128(Infinity)
 expect(toDecimal128(-Infinity)).toEqualDecimal128(-Infinity)
-expect(toDecimal128(NaN)).not.toEqualDecimal128(NaN)
 expect(toDecimal128(NaN)).toBeDecimal128NaN()
+expect(toDecimal128(NaN)).not.toEqualDecimal128(NaN) // NaN never equals NaN
 
-const uuid = toUUID()
-expect(uuid).toBeUUID()
-expect('foobar').not.toBeUUID()
-expect(uuid).toEqualUUID(uuid)
-expect(uuid).not.toEqualUUID(toUUID())
-
-expect(uuid.toString()).toBeUUIDString()
-expect(uuid.toString()).toEqualUUIDString(uuid)
-
-const objectId = toObjectId()
-expect(objectId).toBeObjectId()
+// ObjectId
+const objectId = new ObjectId()
+expect(objectId).toBeObjectId() // type
 expect('foobar').not.toBeObjectId()
-expect(objectId).toEqualObjectId(objectId)
-expect(objectId).not.toEqualObjectId(toObjectId())
-
-expect(objectId.toString()).toBeObjectIdString()
+expect(objectId).toBeObjectId(objectId) // type and value
+expect(objectId).toEqualObjectId(objectId.toString())
+expect(objectId).not.toEqualObjectId(new ObjectId())
+expect(objectId.toString()).toBeObjectIdString() // a valid ObjectId string
 expect(objectId.toString()).toEqualObjectIdString(objectId)
+
+// UUID (with toBeUuid / toEqualUuid / *Uuid* aliases)
+const uuid = new UUID()
+expect(uuid).toBeUUID() // type
+expect('foobar').not.toBeUUID()
+expect(uuid).toBeUUID(uuid) // type and value
+expect(uuid).toEqualUUID(uuid.toString())
+expect(uuid).not.toEqualUUID(new UUID())
+expect(uuid.toString()).toBeUUIDString() // a valid UUID string
+expect(uuid.toString()).toEqualUUIDString(uuid)
+expect(uuid).toBeUuid(uuid) // alias of toBeUUID
 ```
 
-### Connection
+## Connection
 
 `MongoClient` wrapper for connection management
 
@@ -120,7 +273,7 @@ await connection.connect() // connect to the mongodb
 await connection.disconnect() // disconnect to the mongodb
 await connection.transaction(async (options) => {
   // ClientSession object is included in options
-  // to db operaitons here with options
+  // to db operations here with options
 })
 await connection.migrate({
   name: 'collections',
@@ -142,7 +295,7 @@ await connection.migrate({
   },
 })
 
-// you can get the monogdb MongoClient object to do low-level operations
+// you can get the mongodb MongoClient object to do low-level operations
 connection.client // get the mongodb MongoClient object
 connection.client.startSession() // start a new ClientSession
 
@@ -151,12 +304,12 @@ connection.db // get the mongodb Db object
 connection.db.collections() // get all collections
 ```
 
-### Collection
+## Collection
 
-Mongodb `Collection` wrapper for CRUD operaitons
+Mongodb `Collection` wrapper for CRUD operations
 
 ```typescript
-import { Connection, UUID, toUUID } from '@potentia/mongodb7'
+import { Connection, ObjectId, UUID } from '@potentia/mongodb7'
 import { Collection, generateUUID } from '@potentia/mongodb7'
 // or import { Collection, generateUUID } from '@potentia/mongodb7/collection'
 
@@ -208,7 +361,7 @@ Note about the cache:
   - findOneById() will try to load the docuement from the cache if possible.
     You can still disable the cache by providing the second argument as false:
 
-      findOneById(id, false, options) // load the document from db forcely
+      findOneById(id, false, options) // load the document from db forcibly
 
   - queryOne(), findOne(), and findMany() will NOT load the document from the cache,
     but the loaded documents will be cached automatically if the cache is enabled.
@@ -239,25 +392,55 @@ await bars.insertOne({
   value: 234,
 }) // a new UUID _id is generated automatically
 await bars.insertOne({
-  _id: toUUID(),
+  _id: new UUID(),
   key: 'bar',
   value: 345,
 }) // the _id can also be specified explicitly
 
-// Note: generateObjectId() is also provided to generate a new ObjectId _id
+// `generate: generateUUID` above is the id-or-generate callback: generateUUID(id)
+// returns the given id, or `new UUID()` when none is provided. generateObjectId
+// is the equivalent for ObjectId ids. To mint a one-off id elsewhere, just use
+// the constructors directly:
+new UUID() // a new UUID
+new ObjectId() // a new ObjectId
 
 await connection.disconnect()
 ```
 
-### Error
+## Cache
+
+A small in-memory cache with per-entry TTL and capacity-bounded eviction. A
+`Collection` creates one when given the `cache` option (see above), but it can
+also be used standalone via `@potentia/mongodb7/cache`.
+
+```typescript
+import { Cache } from '@potentia/mongodb7'
+// or import { Cache } from '@potentia/mongodb7/cache'
+
+const cache = new Cache<string, number>({
+  capacity: 100, // evict the oldest entries once more than 100 are held
+  ttl: 60000, // optional time-to-live in ms (default: infinity, never expires)
+  interval: 10000, // optional scrub interval in ms for expired entries (default: 10000)
+})
+
+cache.set('a', 1) // cache a value
+cache.get('a') // 1, or undefined if missing/expired
+cache.has('a') // true
+cache.size // number of live entries
+cache.isFull() // size >= capacity
+cache.isEmpty() // size === 0
+cache.delete('a') // remove one entry, returns whether it existed
+cache.clear() // remove all entries
+```
+
+## Error
 
 Errors for mongodb operations
 
 ```typescript
 import assert from 'node:assert'
 import {
-  DBError, // base class for other errors
-  DbError, // alias of DBError
+  DbError, // base class for other errors
   DisconnectedError, // the connection is disconnected
   NotFoundError, // the document is not found
   ConflictError, // the document is duplicated
@@ -267,6 +450,6 @@ import {
 
 const err = new NotFoundError()
 assert(err instanceof NotFoundError)
-assert(err instanceof DBError)
+assert(err instanceof DbError)
 assert(err instanceof Error)
 ```

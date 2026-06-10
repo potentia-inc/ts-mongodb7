@@ -1,5 +1,5 @@
 import { DbError } from './core.js';
-export { DbError, DbError as DBError } from './core.js';
+export { DbError } from './core.js';
 export declare class DisconnectedError extends DbError {
     constructor(message?: string);
 }

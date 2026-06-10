@@ -109,4 +109,3 @@ export function isTransactionError(err) {
 export function isDuplicationError(err) {
     return err instanceof MongoError && err.code === 11000;
 }
-//# sourceMappingURL=connection.js.map
