@@ -1,6 +1,6 @@
 {
   "name": "@potentia/mongodb7",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "cross-runtime utilities for mongodb^7.0.0 on node.js, bun and deno",
   "type": "module",
   "main": "./index.js",
@@ -149,6 +149,6 @@
     }
   },
   "engines": {
-    "node": ">=24.0.0"
+    "node": ">=22.0.0"
   }
 }
