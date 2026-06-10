@@ -23,34 +23,10 @@ import {
   UpdateOptions,
   WithId,
 } from './mongo.js'
-import { ObjectId, toObjectId } from './type.js'
+import { ObjectId } from './type.js'
 import { isNil } from './util.js'
 
 export { generateUUID, generateUUID as generateUuid } from './core.js'
-
-// XXX deprecated, use @potentia/mongodb7/mongo instead
-export {
-  AggregateOptions,
-  AggregationCursor,
-  BulkWriteOptions,
-  ChangeStream,
-  ChangeStreamOptions,
-  Collection as MongoCollection,
-  CommandOperationOptions,
-  DeleteOptions,
-  Document,
-  Filter,
-  FindCursor,
-  FindOneAndUpdateOptions,
-  FindOptions,
-  InsertOneOptions,
-  OptionalId,
-  OptionalUnlessRequiredId,
-  Sort,
-  UpdateFilter,
-  UpdateOptions,
-  WithId,
-} from 'mongodb'
 
 export type CollectionOptions<Doc extends Document> = {
   connection: Connection
@@ -266,5 +242,5 @@ export function generate<T>(id?: T): T {
 }
 
 export function generateObjectId(id?: ObjectId): ObjectId {
-  return id ?? toObjectId()
+  return id ?? new ObjectId()
 }

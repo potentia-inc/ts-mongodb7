@@ -1,5 +1,12 @@
+import { strict as assert } from 'node:assert'
+import { describe, test } from 'node:test'
+import { BigNumber } from 'bignumber.js'
 import {
+  Binary,
   BUFFER_ENCODINGS,
+  Decimal128,
+  ObjectId,
+  UUID,
   toBinary,
   toBinaryOrNil,
   toBuffer,
@@ -13,217 +20,166 @@ import {
   toUUIDOrNil,
   toUuidOrNil,
 } from '../src/type.js'
-import * as matchers from '../src/jest.js'
 
-expect.extend(matchers)
+function equalBinary(a: Binary, b: unknown): boolean {
+  const c = toBinary(b)
+  return Buffer.from(a.value()).equals(Buffer.from(c.value()))
+}
+
+function equalDecimal128(a: Decimal128, b: unknown): boolean {
+  return new BigNumber(a.toString()).eq(new BigNumber(String(b)))
+}
 
 describe('Binary', () => {
-  test('toBeBinary() and toEqualBinary()', () => {
+  test('toBinary()', () => {
     const a = toBinary('foobar')
-    expect(a).toBeBinary()
-    expect('foobar').not.toBeBinary()
+    assert.ok(a instanceof Binary)
+    assert.ok(equalBinary(a, a))
+    assert.ok(equalBinary(a, Buffer.from('foobar', 'base64')))
+    assert.ok(equalBinary(a, 'foobar'))
+    assert.ok(!equalBinary(a, 'foo'))
+    // strict: nullish throws rather than producing garbage bytes
+    assert.throws(() => toBinary(), TypeError)
+    assert.throws(() => toBinary(null), TypeError)
+  })
 
-    expect(a).toEqualBinary(a)
-    expect('foobar').not.toEqualBinary(a)
-    expect(a).toEqualBinary(Buffer.from('foobar', 'base64'))
-    expect(a).toEqualBinary('foobar')
-    expect(a).not.toEqualBinary('foo')
-    expect(a).not.toEqualBinary(Buffer.from('bar'))
+  test('toBinary() from a plain Uint8Array', () => {
+    const bytes = new Uint8Array([104, 105]) // 'hi'
+    const a = toBinary(bytes)
+    assert.ok(a instanceof Binary)
+    assert.deepEqual([...a.value()], [104, 105])
+    assert.ok(equalBinary(a, bytes))
+    assert.ok(equalBinary(a, Buffer.from(bytes)))
+  })
+
+  test('toBinary() from a UUID, a UUID-hex string, and other values', () => {
+    const u = toUUID('60456314-8bf5-48a1-b51b-726037a6e8b9')
+    // a UUID instance becomes a UUID-subtype Binary
+    const fromUuid = toBinary(u)
+    assert.equal(fromUuid.sub_type, Binary.SUBTYPE_UUID)
+    assert.ok(u.equals(fromUuid.toUUID()))
+    // a UUID-hex string takes the same path
+    const fromHex = toBinary('60456314-8bf5-48a1-b51b-726037a6e8b9')
+    assert.equal(fromHex.sub_type, Binary.SUBTYPE_UUID)
+    assert.ok(u.equals(fromHex.toUUID()))
+    // a non-string, non-bytes value falls back through String(x)
+    assert.ok(toBinary(123) instanceof Binary)
   })
 
   test('toBinaryOrNil()', () => {
-    expect(toBinaryOrNil(null)).toBeUndefined()
-    expect(toBinaryOrNil(undefined)).toBeUndefined()
-    expect(toBinaryOrNil('foobar')).toBeBinary()
+    assert.equal(toBinaryOrNil(null), undefined)
+    assert.equal(toBinaryOrNil(undefined), undefined)
+    assert.ok(toBinaryOrNil('foobar') instanceof Binary)
   })
 })
 
 describe('Buffer', () => {
-  test('toBuffer() and toEqualBuffer()', () => {
+  test('toBuffer()', () => {
     const a = toBuffer('foobar')
-    expect(a).toBeBuffer()
-    expect('foobar').not.toBeBuffer()
+    assert.ok(Buffer.isBuffer(a))
     for (const encoding of BUFFER_ENCODINGS) {
-      expect(toBuffer(a.toString(encoding))).toBeBuffer()
+      assert.ok(Buffer.isBuffer(toBuffer(a.toString(encoding))))
     }
+    assert.ok(a.equals(toBuffer(a)))
+    assert.ok(a.equals(toBuffer('foobar')))
+    assert.ok(!a.equals(toBuffer('foo')))
+    // strict: nullish throws rather than producing garbage bytes
+    assert.throws(() => toBuffer(), TypeError)
+    assert.throws(() => toBuffer(null), TypeError)
+  })
 
-    expect(a).toEqualBuffer(a)
-    expect('foobar').not.toEqualBuffer(a)
-    expect(a).toEqualBuffer('foobar')
-    expect(a).not.toEqualBuffer('foo')
-    expect(a).not.toEqualBuffer(Buffer.from('bar'))
+  test('toBuffer() from a plain Uint8Array', () => {
+    const bytes = new Uint8Array([104, 105]) // 'hi'
+    const buf = toBuffer(bytes)
+    assert.ok(Buffer.isBuffer(buf))
+    assert.deepEqual([...buf], [104, 105])
+    // a byte view with a non-zero offset is copied by its logical bytes
+    const view = new Uint8Array([0, 104, 105, 0]).subarray(1, 3)
+    assert.deepEqual([...toBuffer(view)], [104, 105])
   })
 
   test('toBufferOrNil()', () => {
-    expect(toBufferOrNil(null)).toBeUndefined()
-    expect(toBufferOrNil(undefined)).toBeUndefined()
-    expect(toBufferOrNil('foobar')).toBeBuffer()
+    assert.equal(toBufferOrNil(null), undefined)
+    assert.equal(toBufferOrNil(undefined), undefined)
+    assert.ok(Buffer.isBuffer(toBufferOrNil('foobar')))
   })
 })
 
 describe('Decimal128', () => {
-  test('toBeDecimal128() and toEqualDecimal128()', () => {
+  test('toDecimal128()', () => {
     const a = toDecimal128(123.45)
-    expect(a).toBeDecimal128()
-    expect('foobar').not.toBeDecimal128()
+    assert.ok(a instanceof Decimal128)
+    assert.ok(equalDecimal128(a, 123.45))
+    assert.ok(equalDecimal128(a, '123.45'))
+    assert.ok(!equalDecimal128(a, 234.56))
 
-    expect(a).toEqualDecimal128(a)
-    expect('foobar').not.toEqualDecimal128(a)
-    expect(a).toEqualDecimal128(123.45)
-    expect(a).toEqualDecimal128('123.45')
-    expect(a).not.toEqualDecimal128(234.56)
-    expect(a).not.toEqualDecimal128('234.56')
-    expect(a).not.toBeDecimal128NaN()
-
-    expect(toDecimal128(Infinity)).toEqualDecimal128(Infinity)
-    expect(toDecimal128(-Infinity)).toEqualDecimal128(-Infinity)
-    expect(toDecimal128(NaN)).not.toEqualDecimal128(NaN)
-    expect(toDecimal128(NaN)).toBeDecimal128NaN()
-    expect(() => toDecimal128('foobar')).toThrow(/valid/)
+    assert.ok(equalDecimal128(toDecimal128(Infinity), Infinity))
+    assert.ok(equalDecimal128(toDecimal128(-Infinity), -Infinity))
+    assert.ok(new BigNumber(toDecimal128(NaN).toString()).isNaN())
+    assert.throws(() => toDecimal128('foobar'), /valid/)
+    // strict: nullish throws a TypeError (not a BSONError)
+    assert.throws(() => toDecimal128(), TypeError)
+    assert.throws(() => toDecimal128(null), TypeError)
   })
 
   test('toDecimal128OrNil()', () => {
-    expect(toDecimal128OrNil(null)).toBeUndefined()
-    expect(toDecimal128OrNil(undefined)).toBeUndefined()
-    expect(toDecimal128OrNil('1.234')).toBeDecimal128()
+    assert.equal(toDecimal128OrNil(null), undefined)
+    assert.equal(toDecimal128OrNil(undefined), undefined)
+    assert.ok(toDecimal128OrNil('1.234') instanceof Decimal128)
   })
 })
 
 describe('ObjectId', () => {
-  test('toBeObjectId() and toEqualObjectId()', () => {
-    const a = toObjectId()
-    expect(a).toBeObjectId()
-    expect('foobar').not.toBeObjectId()
-
-    expect(a).toEqualObjectId(a)
-    expect('foobar').not.toEqualObjectId(a)
-    expect(a).toEqualObjectId(a.toString())
-    expect(a).not.toEqualObjectId(toObjectId())
-    expect(a).not.toEqualObjectId(toObjectId().toString())
-
-    const astr = a.toString()
-    expect(astr).toBeObjectIdString()
-    expect(a).not.toBeObjectIdString()
-    expect('foobar').not.toBeObjectIdString()
-
-    expect(astr).toEqualObjectIdString(a)
-    expect(a).not.toEqualObjectIdString(a)
-    expect('foobar').not.toEqualObjectIdString(a)
-    expect(astr).toEqualObjectIdString(a.toString())
-    expect(astr).not.toEqualObjectIdString(toObjectId())
-    expect(astr).not.toEqualObjectIdString(toObjectId().toString())
+  test('toObjectId()', () => {
+    const a = new ObjectId()
+    assert.ok(toObjectId(a) instanceof ObjectId)
+    assert.ok(a.equals(toObjectId(a)))
+    assert.ok(a.equals(toObjectId(a.toString())))
+    assert.ok(!a.equals(toObjectId(new ObjectId())))
+    // a plain Uint8Array of the 12 raw id bytes round-trips
+    assert.ok(a.equals(toObjectId(new Uint8Array(a.id))))
+    // any other value is coerced via String(x)
+    assert.ok(a.equals(toObjectId({ toString: () => a.toString() })))
+    // strict: nullish throws (use `new ObjectId()` to mint a new id)
+    assert.throws(() => toObjectId(), TypeError)
+    assert.throws(() => toObjectId(null), TypeError)
   })
 
-  test('toObjectIdOrNil', () => {
-    expect(toObjectIdOrNil(null)).toBeUndefined()
-    expect(toObjectIdOrNil(undefined)).toBeUndefined()
-    expect(toObjectIdOrNil('658e77fb9d2dd4679b004398')).toBeObjectId()
+  test('toObjectIdOrNil()', () => {
+    assert.equal(toObjectIdOrNil(null), undefined)
+    assert.equal(toObjectIdOrNil(undefined), undefined)
+    assert.ok(toObjectIdOrNil('658e77fb9d2dd4679b004398') instanceof ObjectId)
   })
 })
 
 describe('UUID', () => {
-  test('toBeUUID() and toEqualUUID()', () => {
-    const a = toUUID()
-    expect(a).toBeUUID()
-    expect('foobar').not.toBeUUID()
-    expect(toUUID({ toString: () => a.toString() })).toBeUUID()
-    expect(toUUID(toUUID().toBinary())).toBeUUID()
-
-    expect(a).toEqualUUID(a)
-    expect('foobar').not.toEqualUUID(a)
-    expect(a).toEqualUUID(a.toString())
-    expect(a).not.toEqualUUID(toUUID())
-    expect(a).not.toEqualUUID(toUUID().toString())
-
-    const astr = a.toString()
-    expect(astr).toBeUUIDString()
-    expect(a).not.toBeUUIDString()
-    expect('foobar').not.toBeUUIDString()
-
-    expect(astr).toEqualUUIDString(a)
-    expect(a).not.toEqualUUIDString(a)
-    expect('foobar').not.toEqualUUIDString(a)
-    expect(astr).toEqualUUIDString(a.toString())
-    expect(astr).not.toEqualUUIDString(toUUID())
-    expect(astr).not.toEqualUUIDString(toUUID().toString())
+  test('toUUID()', () => {
+    const a = new UUID()
+    assert.ok(toUUID(a) instanceof UUID)
+    assert.ok(toUUID({ toString: () => a.toString() }) instanceof UUID)
+    assert.ok(toUUID(new UUID().toBinary()) instanceof UUID)
+    assert.ok(a.equals(toUUID(a)))
+    assert.ok(a.equals(toUUID(a.toString())))
+    assert.ok(!a.equals(toUUID(new UUID())))
+    // a plain Uint8Array of the 16 raw id bytes round-trips
+    assert.ok(a.equals(toUUID(new Uint8Array(a.buffer))))
+    // strict: nullish throws (use `new UUID()` to mint a new id)
+    assert.throws(() => toUUID(), TypeError)
+    assert.throws(() => toUUID(null), TypeError)
   })
 
   test('toUUIDOrNil()', () => {
-    expect(toUUIDOrNil(null)).toBeUndefined()
-    expect(toUUIDOrNil(undefined)).toBeUndefined()
-    expect(toUUIDOrNil('60456314-8bf5-48a1-b51b-726037a6e8b9')).toBeUUID()
+    assert.equal(toUUIDOrNil(null), undefined)
+    assert.equal(toUUIDOrNil(undefined), undefined)
+    assert.ok(
+      toUUIDOrNil('60456314-8bf5-48a1-b51b-726037a6e8b9') instanceof UUID,
+    )
   })
 
-  test('toBeUuid() and toEqualUuid()', () => {
-    const a = toUuid()
-    expect(a).toBeUuid()
-    expect('foobar').not.toBeUuid()
-    expect(toUuid({ toString: () => a.toString() })).toBeUuid()
-    expect(toUuid(toUuid().toBinary())).toBeUuid()
-
-    expect(a).toEqualUuid(a)
-    expect('foobar').not.toEqualUuid(a)
-    expect(a).toEqualUuid(a.toString())
-    expect(a).not.toEqualUuid(toUuid())
-    expect(a).not.toEqualUuid(toUuid().toString())
-
-    const astr = a.toString()
-    expect(astr).toBeUuidString()
-    expect(a).not.toBeUuidString()
-    expect('foobar').not.toBeUuidString()
-
-    expect(astr).toEqualUuidString(a)
-    expect(a).not.toEqualUuidString(a)
-    expect('foobar').not.toEqualUuidString(a)
-    expect(astr).toEqualUuidString(a.toString())
-    expect(astr).not.toEqualUuidString(toUuid())
-    expect(astr).not.toEqualUuidString(toUuid().toString())
-  })
-
-  test('toUuidOrNil()', () => {
-    expect(toUuidOrNil(null)).toBeUndefined()
-    expect(toUuidOrNil(undefined)).toBeUndefined()
-    expect(toUuidOrNil('60456314-8bf5-48a1-b51b-726037a6e8b9')).toBeUUID()
-  })
-})
-
-describe('read examples', () => {
-  test('Binary', () => {
-    expect(toBinary('foobar')).toBeBinary()
-    expect('foobar').not.toBeBinary()
-    expect(toBinary('foobar')).toEqualBinary('foobar')
-    expect(toBinary('foobar')).toEqualBinary(Buffer.from('foobar', 'base64'))
-  })
-
-  test('Decimal128', () => {
-    expect(toDecimal128('123.45')).toBeDecimal128()
-    expect(toDecimal128('123.45')).toEqualDecimal128(123.45)
-    expect(toDecimal128('123.45')).toEqualDecimal128('123.45')
-    expect(toDecimal128(Infinity)).toEqualDecimal128(Infinity)
-    expect(toDecimal128(-Infinity)).toEqualDecimal128(-Infinity)
-    expect(toDecimal128(NaN)).not.toEqualDecimal128(NaN)
-    expect(toDecimal128(NaN)).toBeDecimal128NaN()
-  })
-
-  test('UUID', () => {
-    const uuid = toUUID()
-    expect(uuid).toBeUUID()
-    expect('foobar').not.toBeUUID()
-    expect(uuid).toEqualUUID(uuid)
-    expect(uuid).not.toEqualUUID(toUUID())
-
-    expect(uuid.toString()).toBeUUIDString()
-    expect(uuid.toString()).toEqualUUIDString(uuid)
-  })
-
-  test('ObjectId', () => {
-    const objectId = toObjectId()
-    expect(objectId).toBeObjectId()
-    expect('foobar').not.toBeObjectId()
-    expect(objectId).toEqualObjectId(objectId)
-    expect(objectId).not.toEqualObjectId(toObjectId())
-
-    expect(objectId.toString()).toBeObjectIdString()
-    expect(objectId.toString()).toEqualObjectIdString(objectId)
+  test('toUuid() alias', () => {
+    assert.ok(toUuid(new UUID()) instanceof UUID)
+    assert.equal(toUuid, toUUID)
+    assert.equal(toUuidOrNil, toUUIDOrNil)
+    assert.equal(toUuidOrNil(null), undefined)
   })
 })
