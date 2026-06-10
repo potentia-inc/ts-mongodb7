@@ -115,4 +115,34 @@ describe('cache', () => {
     assert.equal(cache.get('d'), 4)
     assert.ok(!cache.has('e'))
   })
+
+  test('scrub() reclaims expired entries once the interval elapses', () => {
+    // explicit `time` arguments make the periodic scrub deterministic
+    const cache = new Cache<string, number>({
+      capacity: 10,
+      ttl: 100,
+      interval: 50,
+    })
+    cache.set('a', 1, new Date(0))
+    cache.set('b', 2, new Date(0))
+    // a read past the interval but before expiry runs scrub without dropping anything
+    assert.equal(cache.get('a', new Date(60)), 1)
+    assert.equal(cache.size, 2)
+    // a read past expiry scrubs the stale entries out of the backing list
+    assert.equal(cache.get('a', new Date(150)), undefined)
+    assert.equal(cache.size, 0)
+    assert.equal(cache.list.length, 0)
+  })
+
+  test('evict() keeps a key that still has another live reference', () => {
+    const cache = new Cache<string, number>({ capacity: 2 })
+    cache.set('a', 1)
+    cache.set('a', 2) // 'a' now occupies two list slots (count 2)
+    cache.set('b', 3) // full: a, b
+    cache.set('c', 4) // evicts the oldest key ('a') across both of its slots
+    assert.equal(cache.size, 2)
+    assert.ok(!cache.has('a'))
+    assert.equal(cache.get('b'), 3)
+    assert.equal(cache.get('c'), 4)
+  })
 })

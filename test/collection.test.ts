@@ -1,6 +1,11 @@
 import { strict as assert } from 'node:assert'
 import { after, before, describe, test } from 'node:test'
-import { Collection, generateUUID } from '../src/collection.js'
+import {
+  Collection,
+  generate,
+  generateObjectId,
+  generateUUID,
+} from '../src/collection.js'
 import {
   BulkWriteOptions,
   Filter,
@@ -15,8 +20,9 @@ import {
   DisconnectedError,
   NotFoundError,
   TransactionError,
+  UnacknowledgedError,
 } from '../src/error.js'
-import { UUID } from '../src/type.js'
+import { ObjectId, UUID } from '../src/type.js'
 
 const { MONGO_URI } = process.env
 assert(MONGO_URI !== undefined)
@@ -371,6 +377,83 @@ describe('collection', () => {
       assert.ok(tests.cache?.has(_id))
     }
   })
+
+  test('uncacheOne() and uncacheAll()', async () => {
+    const { _id } = await tests.insertOne({ key: rand() })
+    assert.ok(tests.cache?.has(_id))
+    assert.equal(tests.uncacheOne(_id), true) // removed
+    assert.equal(tests.uncacheOne(_id), false) // already gone
+    assert.ok(!tests.cache?.has(_id))
+
+    await tests.insertOne({ key: rand() })
+    assert.ok((tests.cache?.size ?? 0) > 0)
+    assert.equal(tests.uncacheAll(), true)
+    assert.equal(tests.cache?.size, 0)
+    assert.equal(tests.uncacheAll(), false) // already empty
+  })
+
+  test('insertMany() with ConflictError thrown', async () => {
+    const key = rand()
+    await assert.rejects(
+      tests.insertMany([{ key }, { key }]), // duplicate unique key
+      ConflictError,
+    )
+  })
+
+  test('insertOne()/insertMany() throw UnacknowledgedError (w: 0)', async () => {
+    await assert.rejects(
+      tests.insertOne({ key: rand() }, { writeConcern: { w: 0 } }),
+      UnacknowledgedError,
+    )
+    await assert.rejects(
+      tests.insertMany([{ key: rand() }], { writeConcern: { w: 0 } }),
+      UnacknowledgedError,
+    )
+  })
+
+  test('updateOne() with NotFound thrown', async () => {
+    await assert.rejects(
+      tests.updateOne({ _id: new UUID() }, { $set: { key: rand() } }),
+      NotFoundError,
+    )
+  })
+
+  test('updateOne() upsert generates _id when no $setOnInsert is given', async () => {
+    // a bare Collection (no Tests overrides) passes values without a
+    // $setOnInsert, exercising the generated-_id branch
+    const plain = new Collection<{ _id: UUID; key: string }>({
+      name: 'plain',
+      connection,
+      generate: generateUUID,
+    })
+    const key = rand()
+    const doc = await plain.updateOne(
+      { key },
+      { $set: { key } },
+      { upsert: true },
+    )
+    assert.ok(doc._id instanceof UUID)
+    await plain.deleteOne({ _id: doc._id })
+  })
+
+  test('watch() returns a change stream', async () => {
+    const stream = tests.watch()
+    assert.ok(stream)
+    await stream.close()
+  })
+})
+
+describe('generate helpers', () => {
+  test('generate() returns the id or asserts it is present', () => {
+    assert.equal(generate(5), 5)
+    assert.throws(() => generate())
+  })
+
+  test('generateObjectId() mints a new id or passes one through', () => {
+    assert.ok(generateObjectId() instanceof ObjectId)
+    const oid = new ObjectId()
+    assert.equal(generateObjectId(oid), oid)
+  })
 })
 
 describe('collection with cache', () => {
@@ -405,6 +488,25 @@ describe('collection with cache', () => {
     assert.ok(cached._id.equals(_id))
     // without cache so got DisconnectedError
     await assert.rejects(tests.findOneById(_id, false), DisconnectedError)
+  })
+})
+
+describe('connection', () => {
+  test('client getter throws DisconnectedError before connect()', () => {
+    const conn = new Connection(MONGO_URI)
+    assert.throws(() => conn.client, DisconnectedError)
+  })
+
+  test('concurrent connect() settles on a single client', async () => {
+    const conn = new Connection(MONGO_URI)
+    // both calls pass the "not connected yet" guard before either resolves, so
+    // two clients are opened and the redundant one is closed
+    const [a, b] = await Promise.all([conn.connect(), conn.connect()])
+    assert.equal(a, b)
+    assert.equal(conn.client, a)
+    await conn.disconnect()
+    // disconnect() is idempotent
+    await conn.disconnect()
   })
 })
 

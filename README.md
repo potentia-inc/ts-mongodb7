@@ -6,6 +6,7 @@ Node.js, [Bun](https://bun.sh) and [Deno](https://deno.com).
 
 - [types](#types): coercions for `Binary`, `Buffer`, `Decimal128`, `UUID` and
   `ObjectId`
+- [patches](#patches): opt-in prototype patches for coercion, inspection and JSON
 - [matchers](#matchers): [jest](https://jestjs.io),
   [bun:test](https://bun.sh/docs/cli/test) and [vitest](https://vitest.dev)
   matchers for the types
@@ -125,6 +126,66 @@ toUUID(uuidv7()) // a time-ordered (version 7) UUID
 `Buffer` — the results are still `Buffer`/`Binary` (a `Buffer` is itself a
 `Uint8Array`), and `toBuffer` remains the portable base64/hex/utf8 codec across
 Node, Bun and Deno.
+
+## Patches
+
+`Binary`, `Decimal128`, `ObjectId` and `UUID` are owned by `mongodb`/`bson`. This
+package can patch their prototypes for nicer ergonomics, but since that mutates
+classes shared across your whole process, the patches are **opt-in** and never
+applied by importing the package itself.
+
+Each patch is an independent global mutation, so they are exposed at the finest
+grain — one type × one concern — and the broader entry points just compose them.
+Import exactly what you need, once, at startup:
+
+```typescript
+import '@potentia/mongodb7/patch' // everything
+import '@potentia/mongodb7/patch/decimal128' // every Decimal128 patch
+import '@potentia/mongodb7/patch/decimal128/json' // just the one you want
+```
+
+The tree:
+
+| entry point                          | patches                                            |
+| ------------------------------------ | -------------------------------------------------- |
+| `@potentia/mongodb7/patch`           | everything below                                   |
+| `…/patch/binary`                     | `binary/primitive` + `binary/inspect`              |
+| `…/patch/binary/primitive`           | `Binary` Symbol.toPrimitive (base64 / UUID string) |
+| `…/patch/binary/inspect`             | `Binary` util.inspect → `Binary(..)` / `UUID(..)`  |
+| `…/patch/decimal128`                 | `decimal128/{primitive,inspect,json}`              |
+| `…/patch/decimal128/primitive`       | `Decimal128` Symbol.toPrimitive (string / number)  |
+| `…/patch/decimal128/inspect`         | `Decimal128` util.inspect → `Decimal128(..)`       |
+| `…/patch/decimal128/json`            | `Decimal128` toJSON → a bare string                |
+| `…/patch/objectid`                   | `objectid/{primitive,inspect}`                     |
+| `…/patch/objectid/primitive`         | `ObjectId` Symbol.toPrimitive (hex string)         |
+| `…/patch/objectid/inspect`           | `ObjectId` util.inspect → `ObjectId(..)`           |
+| `…/patch/uuid`                       | `uuid/{primitive,inspect}`                         |
+| `…/patch/uuid/primitive`             | `UUID` Symbol.toPrimitive (string)                 |
+| `…/patch/uuid/inspect`               | `UUID` util.inspect → `UUID(..)`                   |
+
+What the concerns do:
+
+```typescript
+// primitive — Symbol.toPrimitive for template literals / String() / Number()
+import '@potentia/mongodb7/patch/uuid/primitive'
+`${toUUID(uuid)}` // 'f4653fea-...'  (otherwise the default toString is used)
+import '@potentia/mongodb7/patch/decimal128/primitive'
+Number(toDecimal128('1.5')) // 1.5
+
+// inspect — console.log / node:test diffs render as Type(value)
+import '@potentia/mongodb7/patch/objectid/inspect'
+console.log(toObjectId(objectid)) // ObjectId(658cd87dcad575d87adc87bc)
+
+// json — Decimal128 serializes as a bare string instead of Extended JSON
+import '@potentia/mongodb7/patch/decimal128/json'
+JSON.stringify({ v: toDecimal128('1.5') }) // '{"v":"1.5"}'
+// without it: '{"v":{"$numberDecimal":"1.5"}}'
+```
+
+> Note: `…/decimal128/json` changes `Decimal128` serialization process-wide and
+> breaks Extended JSON round-tripping — opt into it only when your application
+> owns the output format. It is the only patch with `json` (the other types
+> serialize fine by default).
 
 ## Matchers
 
@@ -379,8 +440,7 @@ Errors for mongodb operations
 ```typescript
 import assert from 'node:assert'
 import {
-  DBError, // base class for other errors
-  DbError, // alias of DBError
+  DbError, // base class for other errors
   DisconnectedError, // the connection is disconnected
   NotFoundError, // the document is not found
   ConflictError, // the document is duplicated
@@ -390,6 +450,6 @@ import {
 
 const err = new NotFoundError()
 assert(err instanceof NotFoundError)
-assert(err instanceof DBError)
+assert(err instanceof DbError)
 assert(err instanceof Error)
 ```

@@ -52,6 +52,20 @@ describe('Binary', () => {
     assert.ok(equalBinary(a, Buffer.from(bytes)))
   })
 
+  test('toBinary() from a UUID, a UUID-hex string, and other values', () => {
+    const u = toUUID('60456314-8bf5-48a1-b51b-726037a6e8b9')
+    // a UUID instance becomes a UUID-subtype Binary
+    const fromUuid = toBinary(u)
+    assert.equal(fromUuid.sub_type, Binary.SUBTYPE_UUID)
+    assert.ok(u.equals(fromUuid.toUUID()))
+    // a UUID-hex string takes the same path
+    const fromHex = toBinary('60456314-8bf5-48a1-b51b-726037a6e8b9')
+    assert.equal(fromHex.sub_type, Binary.SUBTYPE_UUID)
+    assert.ok(u.equals(fromHex.toUUID()))
+    // a non-string, non-bytes value falls back through String(x)
+    assert.ok(toBinary(123) instanceof Binary)
+  })
+
   test('toBinaryOrNil()', () => {
     assert.equal(toBinaryOrNil(null), undefined)
     assert.equal(toBinaryOrNil(undefined), undefined)
@@ -124,6 +138,8 @@ describe('ObjectId', () => {
     assert.ok(!a.equals(toObjectId(new ObjectId())))
     // a plain Uint8Array of the 12 raw id bytes round-trips
     assert.ok(a.equals(toObjectId(new Uint8Array(a.id))))
+    // any other value is coerced via String(x)
+    assert.ok(a.equals(toObjectId({ toString: () => a.toString() })))
     // strict: nullish throws (use `new ObjectId()` to mint a new id)
     assert.throws(() => toObjectId(), TypeError)
     assert.throws(() => toObjectId(null), TypeError)

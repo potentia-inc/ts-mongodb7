@@ -6,7 +6,7 @@
   "main": "./index.js",
   "types": "./index.d.ts",
   "sideEffects": [
-    "./type.js"
+    "./patch/**/*.js"
   ],
   "scripts": {
     "clean": "rimraf dist",
@@ -38,7 +38,7 @@
     "eslint": "^9.0.0",
     "eslint-config-prettier": "^10.0.0",
     "eslint-plugin-jest": "^29.0.0",
-    "globals": "^16.0.0",
+    "globals": "^17.0.0",
     "jest": "^30.0.0",
     "prettier": "^3.0.0",
     "rimraf": "^6.0.0",
@@ -78,6 +78,62 @@
     "./type": {
       "types": "./type.d.ts",
       "default": "./type.js"
+    },
+    "./patch": {
+      "types": "./patch/index.d.ts",
+      "default": "./patch/index.js"
+    },
+    "./patch/binary": {
+      "types": "./patch/binary/index.d.ts",
+      "default": "./patch/binary/index.js"
+    },
+    "./patch/binary/primitive": {
+      "types": "./patch/binary/primitive.d.ts",
+      "default": "./patch/binary/primitive.js"
+    },
+    "./patch/binary/inspect": {
+      "types": "./patch/binary/inspect.d.ts",
+      "default": "./patch/binary/inspect.js"
+    },
+    "./patch/decimal128": {
+      "types": "./patch/decimal128/index.d.ts",
+      "default": "./patch/decimal128/index.js"
+    },
+    "./patch/decimal128/primitive": {
+      "types": "./patch/decimal128/primitive.d.ts",
+      "default": "./patch/decimal128/primitive.js"
+    },
+    "./patch/decimal128/inspect": {
+      "types": "./patch/decimal128/inspect.d.ts",
+      "default": "./patch/decimal128/inspect.js"
+    },
+    "./patch/decimal128/json": {
+      "types": "./patch/decimal128/json.d.ts",
+      "default": "./patch/decimal128/json.js"
+    },
+    "./patch/objectid": {
+      "types": "./patch/objectid/index.d.ts",
+      "default": "./patch/objectid/index.js"
+    },
+    "./patch/objectid/primitive": {
+      "types": "./patch/objectid/primitive.d.ts",
+      "default": "./patch/objectid/primitive.js"
+    },
+    "./patch/objectid/inspect": {
+      "types": "./patch/objectid/inspect.d.ts",
+      "default": "./patch/objectid/inspect.js"
+    },
+    "./patch/uuid": {
+      "types": "./patch/uuid/index.d.ts",
+      "default": "./patch/uuid/index.js"
+    },
+    "./patch/uuid/primitive": {
+      "types": "./patch/uuid/primitive.d.ts",
+      "default": "./patch/uuid/primitive.js"
+    },
+    "./patch/uuid/inspect": {
+      "types": "./patch/uuid/inspect.d.ts",
+      "default": "./patch/uuid/inspect.js"
     },
     "./matcher/jest": {
       "types": "./matcher/jest.d.ts",

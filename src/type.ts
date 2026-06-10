@@ -1,5 +1,4 @@
 import assert from 'node:assert'
-import type { Decimal128Extended } from 'bson'
 import { toUUID } from './core.js'
 import { Binary, Decimal128, ObjectId, UUID } from './mongo.js'
 import { isNil } from './util.js'
@@ -14,70 +13,9 @@ export {
 } from './core.js'
 export { Binary, Decimal128, ObjectId } from './mongo.js'
 
-const inspect = Symbol.for('nodejs.util.inspect.custom') // for console.log etc
-
-declare module 'mongodb' {
-  interface Binary {
-    [Symbol.toPrimitive]: (hint: string) => string
-    [inspect]: () => string
-  }
-
-  interface Decimal128 {
-    [Symbol.toPrimitive]: (hint: string) => number | string
-    [inspect]: () => string
-  }
-
-  interface ObjectId {
-    [Symbol.toPrimitive]: (hint: string) => string
-    [inspect]: () => string
-  }
-
-  interface UUID {
-    [Symbol.toPrimitive]: (hint: string) => string
-    [inspect]: () => string
-  }
-}
-
-Binary.prototype[Symbol.toPrimitive] = function (hint: string): string {
-  assert(hint !== 'number')
-  return this.sub_type === Binary.SUBTYPE_UUID
-    ? this.toUUID().toString()
-    : this.toJSON() // to base64 encoding
-}
-Binary.prototype[inspect] = function () {
-  return this.sub_type === Binary.SUBTYPE_UUID
-    ? `UUID(${this})`
-    : `Binary(${this})`
-}
-
-Decimal128.prototype[Symbol.toPrimitive] = function (
-  hint: string,
-): number | string {
-  return hint === 'number' ? Number(this.toString()) : this.toString()
-}
-Decimal128.prototype[inspect] = function () {
-  return `Decimal128(${this})`
-}
-// FIXME hack the Decimal128.prototype.toJSON for JSON.string() to output string
-Decimal128.prototype.toJSON = function (): Decimal128Extended {
-  return this.toString() as unknown as Decimal128Extended
-}
-
-ObjectId.prototype[Symbol.toPrimitive] = function (hint: string): string {
-  assert(hint !== 'number')
-  return this.toString()
-}
-ObjectId.prototype[inspect] = function () {
-  return `ObjectId(${this})`
-}
-
-UUID.prototype[Symbol.toPrimitive] = function (hint: string): string {
-  assert(hint !== 'number')
-  return this.toString()
-}
-UUID.prototype[inspect] = function () {
-  return `UUID(${this})`
-}
+// The `Binary`/`Decimal128`/`ObjectId`/`UUID` prototype patches (Symbol.toPrimitive,
+// util.inspect.custom, Decimal128 toJSON) are opt-in side effects — import them
+// from '@potentia/mongodb7/patch' (or the granular ./patch/{primitive,inspect,json}).
 
 const UUID_HEX_RE =
   /^(?:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|[0-9a-f]{12}4[0-9a-f]{3}[89ab][0-9a-f]{15})$/i

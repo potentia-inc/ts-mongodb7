@@ -25,6 +25,8 @@ import {
   toUUID,
 } from './dist/src/index.js'
 import * as matchers from './dist/src/matcher/core.js'
+// opt-in prototype patches (Symbol.toPrimitive / util.inspect / Decimal128 toJSON)
+import './dist/src/patch/index.js'
 
 const runtime =
   typeof globalThis.Bun !== 'undefined'
@@ -53,9 +55,10 @@ const bytes = new Uint8Array([104, 105])
 assert.deepEqual([...toBinary(bytes).value()], [104, 105])
 assert.ok(toUUID(new Uint8Array(new UUID().buffer)) instanceof UUID)
 
-// prototype patches: Symbol.toPrimitive / JSON serialization
-assert.equal(`${toDecimal128('1.5')}`, '1.5')
-assert.equal(JSON.stringify({ d: toDecimal128('1.5') }), '{"d":"1.5"}')
+// opt-in prototype patches (imported above): Symbol.toPrimitive + Decimal128 toJSON
+assert.equal(`${toDecimal128('1.5')}`, '1.5') // string hint
+assert.equal(Number(toDecimal128('1.5')), 1.5) // number hint
+assert.equal(JSON.stringify({ d: toDecimal128('1.5') }), '{"d":"1.5"}') // toJSON
 const uuid = toUUID('60456314-8bf5-48a1-b51b-726037a6e8b9')
 assert.equal(`${uuid}`, '60456314-8bf5-48a1-b51b-726037a6e8b9')
 

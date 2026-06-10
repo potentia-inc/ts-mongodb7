@@ -107,16 +107,16 @@ function build(
 
 // Build a matcher that checks `isType` alone (no argument) or type plus value
 // equality (one argument). `convert` turns the expected argument into the value
-// compared; `show` renders it for the failure message (defaults to the
-// converted value). A conversion that throws (e.g. an undefined or unparseable
-// expected) counts as "not equal" rather than erroring.
+// compared; `show` renders it for the failure message. A conversion that throws
+// (e.g. an undefined or unparseable expected) counts as "not equal" rather than
+// erroring.
 function combined<T>(
   name: string,
   label: string,
   isType: (received: unknown) => boolean,
   convert: (expected: unknown) => T,
   equals: (received: unknown, expected: T) => boolean,
-  show: (expected: T) => unknown = (expected) => expected,
+  show: (expected: T) => unknown,
 ): Matcher {
   return function (this: MatcherContext, received, ...rest): MatcherResult {
     const arg = expected(name, rest)
