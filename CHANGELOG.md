@@ -1,5 +1,16 @@
 # Change log
 
+## [2.0.1] - 2026-07-01
+
+- Require Node.js >= 24 again (2.0.0 had temporarily lowered it to 22), in sync
+  with the `@tsconfig/node24` build config. All consumers already run Node >= 24
+  or Bun.
+- Pin `bson` to `~7.2.0`: `bson` >= 7.3.0 crashes on import under Bun (a Bun
+  limitation) and `mongodb` imports `bson` at load. Node.js and Deno are
+  unaffected; Bun users should pin `bson` below 7.3.0 in their own
+  `package.json` (see the README "Bun and bson" note).
+- Build with TypeScript 6 (dev toolchain only). No API or runtime changes.
+
 ## [2.0.0] - 2026-06-10
 
 Cross-runtime release: the package now runs on Node.js (>= 22), Bun and

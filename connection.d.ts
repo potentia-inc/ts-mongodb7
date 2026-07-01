@@ -1,4 +1,5 @@
-import { CommandOperationOptions, Db, Document, MongoClient, MongoClientOptions } from 'mongodb';
+import type { CommandOperationOptions, Db, Document, MongoClientOptions } from 'mongodb';
+import { MongoClient } from 'mongodb';
 export declare class Connection {
     #private;
     get client(): MongoClient;

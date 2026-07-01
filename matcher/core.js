@@ -36,7 +36,7 @@ function combined(name, label, isType, convert, equals, show) {
         if (arg === TYPE_ONLY) {
             return build(this, name, `${label} type`, isType(received), received, label);
         }
-        let pass = false;
+        let pass;
         let shown = arg;
         try {
             const converted = convert(arg);

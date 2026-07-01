@@ -1,6 +1,7 @@
-import { Cache, Options as CacheOptions } from './cache.js';
-import { Connection } from './connection.js';
-import { AggregateOptions, AggregationCursor, BulkWriteOptions, ChangeStream, ChangeStreamOptions, Collection as MongoCollection, DeleteOptions, Document, Filter, FindCursor, FindOneAndUpdateOptions, FindOptions, InsertOneOptions, OptionalId, Sort, UpdateFilter, UpdateOptions, WithId } from './mongo.js';
+import type { Options as CacheOptions } from './cache.js';
+import { Cache } from './cache.js';
+import type { Connection } from './connection.js';
+import type { AggregateOptions, AggregationCursor, BulkWriteOptions, ChangeStream, ChangeStreamOptions, Collection as MongoCollection, DeleteOptions, Document, Filter, FindCursor, FindOneAndUpdateOptions, FindOptions, InsertOneOptions, OptionalId, Sort, UpdateFilter, UpdateOptions, WithId } from './mongo.js';
 import { ObjectId } from './type.js';
 export { generateUUID, generateUUID as generateUuid } from './core.js';
 export type CollectionOptions<Doc extends Document> = {
