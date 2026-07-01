@@ -17,7 +17,7 @@ Node.js, [Bun](https://bun.sh) and [Deno](https://deno.com).
 
 ## Runtime support
 
-Works on **Node.js (>= 22)**, **Bun** and **Deno (>= 2)**. The published package
+Works on **Node.js (>= 24)**, **Bun** and **Deno (>= 2)**. The published package
 ships compiled JavaScript plus type declarations, and is pure ESM.
 
 `mongodb` and [bignumber.js](https://github.com/MikeMcl/bignumber.js) are peer
