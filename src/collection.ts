@@ -1,8 +1,10 @@
 import assert from 'node:assert'
-import { Cache, Options as CacheOptions } from './cache.js'
-import { Connection, isDuplicationError } from './connection.js'
+import type { Options as CacheOptions } from './cache.js';
+import { Cache } from './cache.js'
+import type { Connection} from './connection.js';
+import { isDuplicationError } from './connection.js'
 import { ConflictError, NotFoundError, UnacknowledgedError } from './error.js'
-import {
+import type {
   AggregateOptions,
   AggregationCursor,
   BulkWriteOptions,

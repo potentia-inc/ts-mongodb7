@@ -1,9 +1,10 @@
-import {
+import type {
   CommandOperationOptions,
   Db,
   Document,
+  MongoClientOptions} from 'mongodb';
+import {
   MongoClient,
-  MongoClientOptions,
   MongoError,
 } from 'mongodb'
 import { ConflictError, DisconnectedError, TransactionError } from './error.js'
