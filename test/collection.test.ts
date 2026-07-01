@@ -6,7 +6,7 @@ import {
   generateObjectId,
   generateUUID,
 } from '../src/collection.js'
-import {
+import type {
   BulkWriteOptions,
   Filter,
   FindOneAndUpdateOptions,
