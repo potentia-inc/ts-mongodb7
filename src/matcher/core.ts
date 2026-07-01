@@ -130,7 +130,7 @@ function combined<T>(
         label,
       )
     }
-    let pass = false
+    let pass: boolean
     let shown: unknown = arg
     try {
       const converted = convert(arg)

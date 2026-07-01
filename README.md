@@ -44,6 +44,22 @@ npm install @potentia/mongodb7 mongodb bignumber.js
 >   `new UUID()` / `new ObjectId()` for that, or `toXOrNil()` to tolerate nullish
 >   input.
 
+### Bun and bson
+
+`bson` >= 7.3.0 crashes on import **under Bun**: its `ObjectId` calls
+`v8.startupSnapshot.isBuildingSnapshot()`, which Bun ships as a stub that throws
+`NotImplementedError` instead of returning `false`. Because `mongodb` (and this
+package) import `bson` at module load, that crash takes the whole import down.
+Node.js and Deno are unaffected. If you run `@potentia/mongodb7` under Bun, pin
+`bson` below 7.3.0 in your own `package.json` (Bun honors the `overrides` field)
+until Bun implements it:
+
+```json
+"overrides": { "bson": "~7.2.0" }
+```
+
+This is a Bun limitation, not a `@potentia/mongodb7` bug.
+
 ## Types
 
 Coercions for `Binary`, `Buffer`, `Decimal128`, `UUID` and `ObjectId`. Every

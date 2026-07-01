@@ -9,6 +9,7 @@
     "sourceMap": true,
     "moduleResolution": "nodenext",
     "isolatedModules": true,
-    "verbatimModuleSyntax": true
+    "verbatimModuleSyntax": true,
+    "types": ["node", "jest", "bun"]
   }
 }
