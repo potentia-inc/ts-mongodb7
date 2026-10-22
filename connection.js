@@ -1,9 +1,48 @@
-import { MongoClient, MongoError, } from 'mongodb';
+import { MongoClient, MongoError, MongoServerError, MongoServerSelectionError, } from 'mongodb';
 import { ConflictError, DisconnectedError, TransactionError } from './error.js';
+// Server error codes meaning the operation reached a node that is not (or no
+// longer) in the state the driver believed: a stale view of the replica set,
+// or a node stepping down / shutting down.
+export const TOPOLOGY_ERROR_CODES = new Set([
+    10107, // NotWritablePrimary
+    13435, // NotPrimaryNoSecondaryOk
+    13436, // NotPrimaryOrSecondary
+    11600, // InterruptedAtShutdown
+    11602, // InterruptedDueToReplStateChange
+    189, // PrimarySteppedDown
+    91, // ShutdownInProgress
+]);
+// Whether the error suggests the client's view of the replica set is wrong:
+// one of TOPOLOGY_ERROR_CODES, or no suitable server could be selected.
+// Network errors are excluded; the driver already retries and resets on them.
+export function isTopologyError(err) {
+    if (err instanceof MongoServerSelectionError)
+        return true;
+    return (err instanceof MongoServerError &&
+        typeof err.code === 'number' &&
+        TOPOLOGY_ERROR_CODES.has(err.code));
+}
 export class Connection {
     #client = undefined;
     #uri;
     #options;
+    #onConnecting;
+    #onConnected;
+    #auto;
+    #cooldown;
+    #grace;
+    #onRebuilding;
+    #onRebuilt;
+    #generation = 0;
+    #attemptedAt = -Infinity;
+    #connecting = undefined;
+    #rebuilding = undefined;
+    #retiring = new Map();
+    // clients still connecting, closed right away by disconnect()
+    #opening = new Set();
+    // disconnect() calls: a connect or rebuild that sees it change while waiting
+    // drops its client instead of installing it
+    #disconnects = 0;
     get client() {
         if (this.#client === undefined)
             throw new DisconnectedError();
@@ -12,29 +51,208 @@ export class Connection {
     get db() {
         return this.client.db();
     }
-    constructor(uri, options) {
+    // increases by one for every MongoClient created
+    get generation() {
+        return this.#generation;
+    }
+    constructor(uri, options = {}) {
+        const { $onConnecting, $onConnected, $rebuild, ...rest } = options;
         this.#uri = uri;
-        this.#options = options;
+        this.#options = rest;
+        this.#onConnecting = $onConnecting;
+        this.#onConnected = $onConnected;
+        this.#auto = $rebuild !== false;
+        const { cooldown = 30_000, grace = 30_000, onRebuilding, onRebuilt, } = $rebuild || {};
+        this.#cooldown = cooldown;
+        this.#grace = grace;
+        this.#onRebuilding = onRebuilding;
+        this.#onRebuilt = onRebuilt;
     }
+    // Concurrent calls share one client. Rejects with DisconnectedError if
+    // disconnect() is called before it completes.
     async connect() {
-        if (this.#client === undefined) {
-            const client = await MongoClient.connect(this.#uri, this.#options);
-            ['error', 'timeout', 'parseError'].forEach((event) => {
-                client.on(event, (...args) => console.error(`db event ${event}: ${JSON.stringify(args)}`));
+        if (this.#client !== undefined)
+            return this.#client;
+        if (this.#connecting === undefined) {
+            const connecting = this.#connect().finally(() => {
+                // a disconnect() meanwhile may have let a new connect() start
+                if (this.#connecting === connecting)
+                    this.#connecting = undefined;
             });
-            if (this.#client === undefined)
-                this.#client = client;
-            else
-                client.close().catch(console.error);
+            this.#connecting = connecting;
         }
-        return this.#client;
+        return await this.#connecting;
     }
+    async #connect() {
+        const disconnects = this.#disconnects;
+        const client = await this.#open(++this.#generation, disconnects);
+        if (disconnects !== this.#disconnects) {
+            await client.close().catch(console.error);
+            throw new DisconnectedError();
+        }
+        this.#client = client;
+        this.#attemptedAt = Date.now();
+        return client;
+    }
+    // Close every client: the current one, the replaced ones still in their
+    // grace period, and the ones still connecting (their connect() or rebuild()
+    // is abandoned). Settles once they are all closed, rejecting with the first
+    // close error if any.
     async disconnect(force = false) {
+        ++this.#disconnects;
+        const closing = [];
+        for (const [client, timer] of this.#retiring) {
+            clearTimeout(timer);
+            closing.push(client.close(force));
+        }
+        this.#retiring.clear();
+        for (const client of this.#opening)
+            closing.push(client.close(force));
         if (this.#client !== undefined) {
             const client = this.#client;
             this.#client = undefined;
-            await client.close(force);
+            closing.push(client.close(force));
         }
+        // the abandoned connect / rebuild settle once their clients are closed
+        // (a client closed before the driver created its topology, e.g. during
+        // SRV resolution, still finishes connecting first); a later connect() or
+        // rebuild() starts afresh
+        for (const pending of [this.#connecting, this.#rebuilding]) {
+            if (pending !== undefined)
+                closing.push(pending.catch(() => undefined));
+        }
+        this.#connecting = undefined;
+        this.#rebuilding = undefined;
+        // wait for every close even if one fails
+        const results = await Promise.allSettled(closing);
+        for (const result of results) {
+            if (result.status === 'rejected')
+                throw result.reason;
+        }
+    }
+    // Replace the MongoClient with a new one. Collections resolve
+    // `connection.db` on every call, so they use the new client right away;
+    // the replaced client is closed after the grace period (cursors, change
+    // streams and sessions still open on it then fail). Concurrent calls
+    // share one rebuild, and within the cooldown of connecting or the previous
+    // attempt the current client is kept.
+    // Resolves to whether the client was replaced (false within the cooldown, or
+    // if disconnect() is called meanwhile). Rejects with DisconnectedError when
+    // not connected, or, keeping the current client, with the error thrown by
+    // onRebuilding or the error of connecting the new client.
+    async rebuild(reason) {
+        if (this.#client === undefined)
+            throw new DisconnectedError();
+        if (this.#rebuilding !== undefined)
+            return await this.#rebuilding;
+        if (Date.now() - this.#attemptedAt < this.#cooldown)
+            return false;
+        // a failed (or aborted) attempt also starts the cooldown, so an
+        // unreachable deployment is not retried back to back
+        this.#attemptedAt = Date.now();
+        const rebuilding = this.#rebuild(reason).finally(() => {
+            if (this.#rebuilding === rebuilding)
+                this.#rebuilding = undefined;
+        });
+        this.#rebuilding = rebuilding;
+        return await rebuilding;
+    }
+    // Run fn; if it fails with a topology error, rebuild the client and run it
+    // again (up to `retries` times). fn must be safe to repeat and must resolve
+    // `connection.db` / collections inside itself: sessions and cursors created
+    // outside fn stay bound to the replaced client.
+    async retry(fn, { retries = 1 } = {}) {
+        for (let attempt = 0;; ++attempt) {
+            try {
+                return await fn();
+            }
+            catch (err) {
+                if (attempt >= retries || !isTopologyError(err))
+                    throw err;
+                // a failed or aborted rebuild keeps the current client: run fn on it
+                await this.rebuild(err).catch(() => undefined);
+            }
+        }
+    }
+    async #rebuild(reason) {
+        // throws to abort the rebuild before it is attempted
+        unawaited(this.#onRebuilding?.({ reason }));
+        const old = this.#client;
+        if (old === undefined)
+            throw new DisconnectedError();
+        // captured: a connect() after a disconnect() meanwhile creates a client too
+        const generation = ++this.#generation;
+        const disconnects = this.#disconnects;
+        let client;
+        try {
+            client = await this.#open(generation, disconnects);
+            if (disconnects !== this.#disconnects) {
+                await client.close().catch(console.error);
+                throw new DisconnectedError();
+            }
+        }
+        catch (error) {
+            notify(this.#onRebuilt, { reason, generation, error });
+            // disconnected meanwhile: the rebuild is abandoned, not failed
+            if (disconnects !== this.#disconnects)
+                return false;
+            throw error;
+        }
+        this.#client = client;
+        const timer = setTimeout(() => {
+            this.#retiring.delete(old);
+            old.close().catch(console.error);
+        }, this.#grace);
+        timer.unref?.();
+        this.#retiring.set(old, timer);
+        notify(this.#onRebuilt, { reason, generation });
+        return true;
+    }
+    // Create and connect a client. If disconnect() is called meanwhile
+    // (`disconnects` changes) and that makes connecting fail, rejects with
+    // DisconnectedError; if connecting succeeds anyway, the caller must check
+    // `disconnects` itself.
+    async #open(generation, disconnects) {
+        const client = new MongoClient(this.#uri, this.#options);
+        ['error', 'timeout', 'parseError'].forEach((event) => {
+            client.on(event, (...args) => console.error(`db event ${event}: ${JSON.stringify(args)}`));
+        });
+        if (this.#auto) {
+            // The driver marks a server unknown, with the error, when an operation
+            // fails with a state change error; rebuild if it is a topology error.
+            client.on('serverDescriptionChanged', ({ newDescription }) => {
+                if (this.#client !== client)
+                    return;
+                if (!isTopologyError(newDescription.error))
+                    return;
+                this.rebuild(newDescription.error).catch(() => undefined);
+            });
+        }
+        try {
+            unawaited(this.#onConnecting?.(client, generation));
+        }
+        catch (err) {
+            // aborted before connecting: $onConnected is not called
+            client.close().catch(() => undefined);
+            throw err;
+        }
+        this.#opening.add(client);
+        try {
+            await client.connect();
+        }
+        catch (err) {
+            // even if disconnect() already closed it: a close before the driver
+            // created its topology (e.g. during SRV resolution) releases nothing
+            client.close().catch(() => undefined);
+            const error = disconnects === this.#disconnects ? err : new DisconnectedError();
+            notify(this.#onConnected, client, generation, error);
+            throw error;
+        }
+        finally {
+            this.#opening.delete(client);
+        }
+        notify(this.#onConnected, client, generation);
+        return client;
     }
     async transaction(fn, options = {}) {
         if (options?.session !== undefined)
@@ -99,6 +317,24 @@ export class Connection {
             });
         }
     }
+}
+// call an after-hook: it cannot change the outcome of the action, so an error
+// it throws is logged instead of turning the action into a failure
+function notify(hook, ...args) {
+    try {
+        unawaited(hook?.(...args));
+    }
+    catch (err) {
+        console.error(err);
+    }
+}
+// a hook returning a promise is not awaited: log its rejection instead of
+// leaving it unhandled (which would crash the process on Node by default).
+// Any thenable counts, not only this realm's Promise (e.g. under jest's vm).
+function unawaited(result) {
+    const then = result?.then;
+    if (typeof then === 'function')
+        Promise.resolve(result).catch(console.error);
 }
 export function isTransactionError(err) {
     return (err instanceof MongoError &&

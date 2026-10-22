@@ -1,6 +1,6 @@
 {
   "name": "@potentia/mongodb7",
-  "version": "2.0.1",
+  "version": "2.1.0",
   "description": "cross-runtime utilities for mongodb^7.0.0 on node.js, bun and deno",
   "type": "module",
   "main": "./index.js",
@@ -35,7 +35,7 @@
     "@types/node": "^24.0.0",
     "@typescript-eslint/eslint-plugin": "^8.0.0",
     "@typescript-eslint/parser": "^8.0.0",
-    "bson": "~7.2.0",
+    "bson": "^7.0.0",
     "eslint": "^10.0.0",
     "eslint-config-prettier": "^10.0.0",
     "eslint-plugin-jest": "^29.0.0",
