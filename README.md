@@ -46,13 +46,14 @@ npm install @potentia/mongodb7 mongodb bignumber.js
 
 ### Bun and bson
 
-`bson` >= 7.3.0 crashes on import **under Bun**: its `ObjectId` calls
-`v8.startupSnapshot.isBuildingSnapshot()`, which Bun ships as a stub that throws
-`NotImplementedError` instead of returning `false`. Because `mongodb` (and this
-package) import `bson` at module load, that crash takes the whole import down.
-Node.js and Deno are unaffected. If you run `@potentia/mongodb7` under Bun, pin
-`bson` below 7.3.0 in your own `package.json` (Bun honors the `overrides` field)
-until Bun implements it:
+`bson` >= 7.3.0 crashes on import **under older Bun** (1.3.14 crashes; 1.4.3
+works): its `ObjectId` calls `v8.startupSnapshot.isBuildingSnapshot()`, which
+those Bun versions ship as a stub that throws `NotImplementedError` instead of
+returning `false`. Because `mongodb` (and this package) import `bson` at module
+load, that crash takes the whole import down. Node.js and Deno are unaffected.
+`mongodb` >= 7.7.0 requires `bson` >= 7.3.2, so under an affected Bun either
+upgrade Bun (1.4.3 or later), or stay on `mongodb` <= 7.6 and pin `bson` below
+7.3.0 in your own `package.json` (Bun honors the `overrides` field):
 
 ```json
 "overrides": { "bson": "~7.2.0" }
