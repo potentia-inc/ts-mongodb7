@@ -46,13 +46,14 @@ npm install @potentia/mongodb7 mongodb bignumber.js
 
 ### Bun and bson
 
-`bson` >= 7.3.0 crashes on import **under Bun**: its `ObjectId` calls
-`v8.startupSnapshot.isBuildingSnapshot()`, which Bun ships as a stub that throws
-`NotImplementedError` instead of returning `false`. Because `mongodb` (and this
-package) import `bson` at module load, that crash takes the whole import down.
-Node.js and Deno are unaffected. If you run `@potentia/mongodb7` under Bun, pin
-`bson` below 7.3.0 in your own `package.json` (Bun honors the `overrides` field)
-until Bun implements it:
+`bson` >= 7.3.0 crashes on import **under older Bun** (1.3.14 crashes; 1.4.3
+works): its `ObjectId` calls `v8.startupSnapshot.isBuildingSnapshot()`, which
+those Bun versions ship as a stub that throws `NotImplementedError` instead of
+returning `false`. Because `mongodb` (and this package) import `bson` at module
+load, that crash takes the whole import down. Node.js and Deno are unaffected.
+`mongodb` >= 7.7.0 requires `bson` >= 7.3.2, so under an affected Bun either
+upgrade Bun (1.4.3 or later), or stay on `mongodb` <= 7.6 and pin `bson` below
+7.3.0 in your own `package.json` (Bun honors the `overrides` field):
 
 ```json
 "overrides": { "bson": "~7.2.0" }
@@ -319,6 +320,94 @@ connection.client.startSession() // start a new ClientSession
 connection.db // get the mongodb Db object
 connection.db.collections() // get all collections
 ```
+
+### Rebuilding a stale client
+
+In some environments (e.g. Cloud Run with request-based billing, where the CPU
+is throttled between requests) the driver's view of the replica set can become
+stale and stay stale: operations keep reaching a node that is no longer the
+primary (`not primary and secondaryOk=false`) until the process restarts.
+`Connection` can replace its `MongoClient` with a fresh one instead. Collections
+resolve `connection.db` on every call, so they use the new client right away;
+the replaced client is closed after a grace period so in-flight operations can
+finish. Anything still open on the replaced client when it closes (a long-lived
+cursor, a change stream, a session in a long transaction) then fails; reopen it
+through `connection.db`.
+
+The connection settings are passed with the `MongoClient` options under
+`$`-prefixed keys, which are removed before the options reach the driver:
+
+```typescript
+import { Connection, isTopologyError } from '@potentia/mongodb7'
+
+const connection = new Connection('mongodb://...', {
+  maxPoolSize: 10, // MongoClient options as usual
+  // called for every MongoClient created (on connect and on each rebuild),
+  // before it connects, e.g. to attach monitoring listeners
+  $onConnecting: (client, generation) => {
+    client.on('topologyDescriptionChanged', (event) => {
+      /* log it */
+    })
+  },
+  // called for every MongoClient created, after it connected or failed to
+  // connect (`error` is set; a DisconnectedError if disconnect() was called
+  // meanwhile)
+  $onConnected: (client, generation, error) => {
+    /* log it */
+  },
+  // false disables the automatic rebuild; rebuild()/retry() still work
+  $rebuild: {
+    cooldown: 30_000, // minimum time (ms) since connecting or the last rebuild attempt
+    grace: 30_000, // delay (ms) before closing a replaced client
+    // before a rebuild attempt; throw to abort it
+    onRebuilding: ({ reason }) => {
+      /* log it */
+    },
+    // after a rebuild attempt; `error` is set if the rebuild failed
+    onRebuilt: ({ reason, generation, error }) => {
+      /* log it */
+    },
+  },
+})
+
+// rebuild explicitly; concurrent calls share one rebuild, and within the
+// cooldown the current client is kept (resolves to false); rejects if
+// onRebuilding aborts it or the new client fails to connect (the current
+// client is kept)
+await connection.rebuild('reason')
+connection.generation // +1 for every MongoClient created (connect or rebuild attempt)
+
+// run a read again on a fresh client if it fails with a topology error
+// fn must be safe to repeat and must resolve `connection.db` / collections
+// inside itself: sessions and cursors created outside stay on the old client
+const doc = await connection.retry(async () => await collection.findOne(query))
+
+isTopologyError(err) // a not-primary / stepdown / shutdown error, or a server selection error
+```
+
+The hooks come in pairs:
+
+- `onXxxing` runs before the action and can abort it by throwing: the action
+  fails with that error and `onXxxed` is not called. For example, a throwing
+  `$onConnecting` fails `connect()` (or the rebuild).
+- `onXxxed` runs after the action, whether it succeeded or failed (`error` is
+  set), and cannot change its outcome: an error it throws is logged and
+  ignored.
+
+Hooks are synchronous: a promise returned by one (e.g. an `async` function) is
+not awaited, so it cannot abort the action, and its rejection is logged.
+
+Rebuilds happen in two ways:
+
+- **Automatically** (unless `$rebuild: false`): when an operation fails with a
+  topology error, the driver marks that server unknown; the connection observes
+  that through the `serverDescriptionChanged` event and rebuilds. This covers
+  every operation (including cursor `getMore`s), but the operation that failed
+  is not retried, and server selection timeouts are not observed this way.
+- **`retry(fn)`**: on a topology error (including a server selection timeout)
+  it rebuilds and runs `fn` again, so the failing request itself succeeds. Use
+  it for idempotent reads; the driver already retries writes and transactions
+  once on its own.
 
 ## Collection
 

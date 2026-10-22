@@ -24,6 +24,7 @@ import {
   toObjectId,
   toUUID,
 } from './dist/src/index.js'
+import { MongoServerError } from 'mongodb'
 import * as matchers from './dist/src/matcher/core.js'
 // opt-in prototype patches (Symbol.toPrimitive / util.inspect / Decimal128 toJSON)
 import './dist/src/patch/index.js'
@@ -140,6 +141,27 @@ if (MONGO_URI) {
     // delete
     await coll.deleteOne({ _id: doc._id })
     assert.equal(await coll.queryOne({ _id: doc._id }), undefined)
+
+    // rebuild: retry() rebuilds the client on a topology error and runs again
+    const rebuilt = new Connection(MONGO_URI, {
+      $rebuild: { cooldown: 0, grace: 0 },
+    })
+    await rebuilt.connect()
+    try {
+      const clients = []
+      const ok = await rebuilt.retry(async () => {
+        clients.push(rebuilt.client)
+        if (clients.length === 1) {
+          throw new MongoServerError({ ok: 0, code: 13435, errmsg: 'smoke' })
+        }
+        return (await rebuilt.db.command({ ping: 1 })).ok
+      })
+      assert.equal(ok, 1)
+      assert.equal(rebuilt.generation, 2)
+      assert.notEqual(clients[0], clients[1])
+    } finally {
+      await rebuilt.disconnect()
+    }
   } finally {
     await connection.db.dropCollection(name).catch(() => {})
     await connection.disconnect()
