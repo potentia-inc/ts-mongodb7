@@ -1,5 +1,55 @@
 # Change log
 
+## [2.1.0] - 2026-10-22
+
+### Added
+
+- `Connection` can rebuild its `MongoClient` when the driver's view of the
+  replica set goes stale (operations keep failing with
+  `not primary and secondaryOk=false` until a restart, seen on Cloud Run with
+  request-based billing):
+  - `connection.rebuild(reason?)` replaces the client; concurrent calls share
+    one rebuild, no rebuild is attempted within the cooldown of connecting or
+    of the previous attempt (failed, aborted or not), and the replaced client
+    is closed after a grace period.
+  - Automatic rebuild when an operation fails with a topology error (observed
+    via the driver's `serverDescriptionChanged` event); disable with
+    `$rebuild: false`.
+  - `connection.retry(fn, { retries = 1 })` rebuilds and runs `fn` again on a
+    topology error.
+  - `connection.generation` counts the clients created.
+  - `isTopologyError(err)` and `TOPOLOGY_ERROR_CODES`.
+- `Connection` options accept `$`-prefixed settings, removed before the options
+  reach `MongoClient`:
+  - `$onConnecting(client, generation)` and
+    `$onConnected(client, generation, error?)` are called for every client
+    before and after it connects.
+  - `$rebuild` configures the rebuild with
+    `{ cooldown, grace, onRebuilding, onRebuilt }` (defaults: 30s cooldown, 30s
+    grace), or `false` to disable the automatic rebuild.
+  - Hooks come in pairs: `onXxxing` runs before the action and aborts it by
+    throwing; `onXxxed` runs after it, succeeded or failed (with the error),
+    and an error it throws is logged. Hooks are synchronous; a returned
+    promise is not awaited and its rejection is logged.
+
+### Changed
+
+- `connect()` creates the client with `new MongoClient()` + `client.connect()`
+  (instead of `MongoClient.connect()`) so `$onConnecting` runs before
+  connecting, and closes the client if connecting fails. Concurrent `connect()`
+  calls share one client (previously each created one and the extras were
+  closed), and a `disconnect()` meanwhile makes them reject with
+  `DisconnectedError` instead of leaving a client connected.
+- `disconnect()` also closes clients replaced by a rebuild that are still in
+  their grace period, and clients still connecting, and settles once every
+  close has finished (rejecting with the first close error, if any).
+- Unpin `bson` (`~7.2.0` -> `^7.0.0`) and upgrade the dev dependencies within
+  their ranges, including `mongodb` 7.7.0, which requires `bson` >= 7.3.2. The
+  pin never reached consumers (`mongodb` is a peer dependency). `bson` >= 7.3
+  still crashes on import under older Bun (1.3.14 crashes, 1.4.3 works): under
+  an affected Bun, upgrade Bun, or stay on `mongodb` <= 7.6 and pin `bson`
+  below 7.3 (see the README "Bun and bson" note).
+
 ## [2.0.1] - 2026-07-01
 
 - Require Node.js >= 24 again (2.0.0 had temporarily lowered it to 22), in sync
